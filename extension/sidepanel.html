@@ -1,0 +1,508 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>SafeInbox AI Side Panel</title>
+  <link rel="stylesheet" href="src/ui/sidepanel.css">
+  <link rel="preconnect" href="https://fonts.googleapis.com" crossorigin>
+  <link rel="stylesheet"
+    href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Outfit:wght@600;700;800&display=swap"
+    media="print" onload="this.media='all'">
+</head>
+
+<body>
+  <div class="app-container">
+    <!-- Top Header -->
+    <header class="header">
+      <div class="brand">
+        <div class="logo-wrapper">
+          <img src="icons/icon48.png" alt="SafeInbox AI Shield" class="logo-img">
+          <div class="logo-pulse"></div>
+        </div>
+        <div class="brand-text">
+          <div class="brand-title">SAFEINBOX<span class="brand-accent">AI</span></div>
+          <div class="brand-subtitle">INTELLIGENT EMAIL PROTECTION</div>
+        </div>
+      </div>
+      <div class="header-actions">
+        <div class="status-indicator" id="engineStatusBadge"
+          title="Client-side URL heuristics with optional ONNX inference">
+          <span class="status-dot online"></span>
+          <span class="status-label" id="engineStatusText">Starting URL engine...</span>
+        </div>
+        <button class="account-pill-btn" id="accountPillBtn" type="button" title="Sign In or Manage Account">
+          <span class="account-pill-icon">👤</span>
+          <span class="account-pill-label" id="accountPillLabel">Sign In</span>
+        </button>
+      </div>
+    </header>
+    <div class="active-email-notice" id="activeEmailNotice" role="status" aria-live="polite">
+      Click the extension icon to open the panel. It updates automatically as you switch emails.
+    </div>
+
+    <!-- Navigation Tabs -->
+    <nav class="nav-tabs">
+      <button class="tab-btn active" data-tab="tab-summary" id="tabSummaryBtn">
+        <svg class="tab-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+          <path d="M3 3v18h18"></path>
+          <path d="m19 9-5 5-4-4-3 3"></path>
+        </svg>
+        Summary
+      </button>
+      <button class="tab-btn" data-tab="tab-url" id="tabUrlBtn">
+        <svg class="tab-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+          <circle cx="12" cy="12" r="10"></circle>
+          <line x1="2" y1="12" x2="22" y2="12"></line>
+          <path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z"></path>
+        </svg>
+        URL Scanner
+      </button>
+      <button class="tab-btn" data-tab="tab-context" id="tabEmailBtn">
+        <svg class="tab-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+          <path d="M4 4h16c1.1 0 2 .9 2 2v12c0 1.1-.9 2-2 2H4c-1.1 0-2-.9-2-2V6c0-1.1.9-2 2-2z"></path>
+          <polyline points="22,6 12,13 2,6"></polyline>
+        </svg>
+        Context Scanning
+      </button>
+    </nav>
+
+    <section class="tab-content active" id="tab-summary">
+      <div class="summary-metrics" aria-label="Current email analysis averages">
+        <div class="summary-metric">
+          <span>Email text</span>
+          <strong id="summaryTextScore">--</strong>
+        </div>
+        <div class="summary-metric">
+          <span>URL average</span>
+          <strong id="summaryUrlScore">--</strong>
+        </div>
+        <div class="summary-metric">
+          <span>Combined average</span>
+          <strong id="summaryCombinedScore">--</strong>
+        </div>
+      </div>
+      <div class="summary-analysis" id="summaryAnalysis">
+        Open an email in Gmail, Outlook, or Yahoo Mail to see its analysis here.
+      </div>
+    </section>
+
+    <!-- URL SCANNER -->
+    <section class="tab-content" id="tab-url">
+      <div class="input-card">
+        <div class="input-label-row">
+          <label for="urlInput" class="input-label">Target URL or Domain</label>
+          <button class="text-link-btn" id="useCurrentTabBtn">
+            <svg class="btn-micro-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"></path>
+              <path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"></path>
+            </svg>
+            Current Tab
+          </button>
+        </div>
+        <div class="input-group">
+          <input type="text" id="urlInput" placeholder="https://example.com/login or paste link..." spellcheck="false"
+            autocomplete="off">
+          <button id="scanUrlBtn" class="primary-btn">
+            <span>Analyze</span>
+            <svg class="btn-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <polygon points="5 3 19 12 5 21 5 3"></polygon>
+            </svg>
+          </button>
+        </div>
+        <div class="quick-chips">
+          <span class="chip-label">Quick Samples:</span>
+          <button class="chip-btn" data-sample="https://apple-id-verify.security-update.xyz/login.php">Phishing
+            URL</button>
+          <button class="chip-btn" data-sample="http://192.168.1.50/admin/wallet.php">IP Host</button>
+          <button class="chip-btn" data-sample="https://www.wikipedia.org/wiki/Computer_security">Benign URL</button>
+        </div>
+      </div>
+    </section>
+
+    <!-- CONTEXT SCANNING -->
+    <section class="tab-content" id="tab-context">
+      <div class="input-card">
+        <div class="input-label-row">
+          <label for="emailInput" class="input-label">Email Content / Raw Message / Headers</label>
+          <button class="text-link-btn" id="extractFromPageBtn">
+            <svg class="btn-micro-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <polyline points="7 10 12 15 17 10"></polyline>
+              <line x1="12" y1="15" x2="12" y2="3"></line>
+            </svg>
+            Grab from Page
+          </button>
+        </div>
+        <textarea id="emailInput" rows="5"
+          placeholder="Paste full email text, headers, or suspicious message...&#10;e.g. From: Netflix &lt;support@netflx-update.xyz&gt;&#10;Subject: URGENT: Account Suspended!&#10;Verify your credentials at http://netflix-billing.top/login"
+          spellcheck="false"></textarea>
+        <div class="email-actions-row">
+          <div class="quick-chips">
+            <span class="chip-label">Samples:</span>
+            <button class="chip-btn" id="loadNetflixPhishBtn">Netflix Spoof</button>
+            <button class="chip-btn" id="loadPayPalPhishBtn">PayPal Scam</button>
+            <button class="chip-btn" id="loadBenignEmailBtn">Safe Email</button>
+          </div>
+          <button id="scanEmailBtn" class="primary-btn">
+            <span>Deep Scan Email</span>
+            <svg class="btn-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <polygon points="5 3 19 12 5 21 5 3"></polygon>
+            </svg>
+          </button>
+        </div>
+      </div>
+      <div class="context-result-card" id="contextResultCard">
+        <div class="card-header-row">
+          <div class="card-header-title">Email Text Assessment</div>
+          <span class="intel-badge" id="contextTextLevel">WAITING</span>
+        </div>
+        <div class="context-score-row">
+          <strong id="contextTextScore">--</strong>
+          <span>text risk / 100</span>
+        </div>
+        <div class="context-summary" id="contextTextSummary">Open or paste an email and run a text scan.</div>
+        <div class="context-signals" id="contextSignals"></div>
+      </div>
+    </section>
+
+    <!-- Additional page-link scan controls, moved into URL Scanner during initialization. -->
+    <section class="tab-content" id="tab-page">
+      <div class="input-card">
+        <div class="page-scanner-intro">
+          <div class="intro-icon-box">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <circle cx="12" cy="12" r="10"></circle>
+              <polygon points="16.24 7.76 14.12 14.12 7.76 16.24 9.88 9.88 16.24 7.76"></polygon>
+            </svg>
+          </div>
+          <div class="intro-text">
+            <div class="intro-title">Active Webpage Inspector</div>
+            <div class="intro-sub">Scans hyperlinks on the current web page with browser-side heuristic checks and
+              highlights suspicious destinations.</div>
+          </div>
+        </div>
+        <button id="scanPageLinksBtn" class="primary-btn w-full">
+          <span>Scan Active Page Links</span>
+          <svg class="btn-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <path
+              d="M21 12a9 9 0 0 1-9 9m9-9a9 9 0 0 0-9-9m9 9H3m9 9a9 9 0 0 1-9-9m9 9c1.657 0 3-4.03 3-9s-1.343-9-3-9m0 18c-1.657 0-3-4.03-3-9s1.343-9 3-9">
+            </path>
+          </svg>
+        </button>
+      </div>
+    </section>
+
+    <!-- LOADING SPINNER -->
+    <div class="loading-overlay" id="loadingOverlay" style="display: none;">
+      <div class="cyber-spinner"></div>
+      <div class="loading-text">Executing Multi-Layer Threat Scan...</div>
+      <div class="loading-sub">Running browser-side URL and email heuristic checks</div>
+    </div>
+
+    <!-- Overall result remains in Summary; link details and feedback are moved to URL Scanner. -->
+    <div class="results-container" id="resultsContainer" style="display: none;">
+
+      <!-- Primary Assessment Banner -->
+      <div class="verdict-card" id="verdictCard">
+        <div class="gauge-col">
+          <div class="gauge-wrapper">
+            <svg class="gauge-svg" viewBox="0 0 100 100">
+              <circle class="gauge-bg" cx="50" cy="50" r="42"></circle>
+              <circle class="gauge-bar" id="gaugeBar" cx="50" cy="50" r="42"></circle>
+            </svg>
+            <div class="gauge-center">
+              <div class="gauge-score" id="riskScoreValue">--</div>
+              <div class="gauge-label">RISK</div>
+            </div>
+          </div>
+        </div>
+        <div class="verdict-col">
+          <div class="badge-row">
+            <span class="risk-badge" id="riskLevelBadge">UNKNOWN</span>
+            <span class="latency-badge" id="latencyBadge">-- ms</span>
+          </div>
+          <div class="verdict-title" id="verdictTitle">Assessment Ready</div>
+          <div class="verdict-summary" id="verdictSummary">Summary description will appear here.</div>
+        </div>
+      </div>
+
+      <!-- Company / Brand Intelligence Card -->
+      <div class="intel-card" id="companyIntelCard">
+        <div class="card-header-row">
+          <div class="card-header-title">
+            <svg class="card-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"></path>
+              <circle cx="12" cy="7" r="4"></circle>
+            </svg>
+            Company & Entity Intelligence
+          </div>
+          <span class="intel-badge" id="companyStatusBadge">ANALYZED</span>
+        </div>
+        <div class="intel-grid">
+          <div class="intel-item">
+            <div class="intel-label">Claimed Brand / Entity</div>
+            <div class="intel-value highlight" id="intelClaimedBrand">None Detected</div>
+          </div>
+          <div class="intel-item">
+            <div class="intel-label">Sender Email / Domain</div>
+            <div class="intel-value mono" id="intelSenderDomain">--</div>
+          </div>
+          <div class="intel-item full-width">
+            <div class="intel-label">Domain Consistency Verdict</div>
+            <div class="intel-verdict" id="intelDomainVerdict">No organization mismatch detected.</div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Direct Safety Feedback Card -->
+      <div class="feedback-card" id="directFeedbackCard" style="display: none;">
+        <div class="feedback-card-header">
+          <div class="feedback-card-title">
+            <svg class="card-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <path
+                d="M14 9V5a3 3 0 0 0-3-3l-4 9v11h11.28a2 2 0 0 0 2-1.7l1.38-9a2 2 0 0 0-2-2.3zM7 22H4a2 2 0 0 1-2-2v-7a2 2 0 0 1 2-2h3">
+              </path>
+            </svg>
+            <span>Was this target safe?</span>
+          </div>
+          <span class="feedback-ml-tag">Browser Feedback</span>
+        </div>
+        <div class="feedback-card-sub" id="feedbackTargetLabel">Your label is saved in this browser as feedback for
+          future model training. The current model is not retrained automatically.</div>
+        <div class="feedback-buttons-row" id="directFeedbackBtns">
+          <button class="feedback-btn safe" id="btnFeedbackSafe">
+            <span>✅ Safe URL</span>
+          </button>
+          <button class="feedback-btn threat" id="btnFeedbackThreat">
+            <span>❌ Threat / Malicious</span>
+          </button>
+        </div>
+        <div class="feedback-status-msg" id="directFeedbackMsg" style="display: none;"></div>
+      </div>
+
+      <!-- Actionable Recommendation -->
+      <div class="remediation-card" id="remediationCard">
+        <div class="remediation-title">
+          <svg class="card-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"></path>
+            <line x1="12" y1="9" x2="12" y2="13"></line>
+            <line x1="12" y1="17" x2="12.01" y2="17"></line>
+          </svg>
+          Recommended Analyst Action
+        </div>
+        <div class="remediation-text" id="remediationText">Action guidance...</div>
+      </div>
+
+      <!-- Evidence Findings List -->
+      <div class="evidence-card">
+        <div class="card-header-row">
+          <div class="card-header-title">
+            <svg class="card-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <polyline points="22 12 18 12 15 21 9 3 6 12 2 12"></polyline>
+            </svg>
+            Evidence & Threat Signals (<span id="evidenceCount">0</span>)
+          </div>
+        </div>
+        <div class="evidence-list" id="evidenceList">
+          <!-- Populated dynamically -->
+        </div>
+      </div>
+
+      <!-- Embedded Links Table / List (One-by-One with Boolean Feedback) -->
+      <div class="links-card" id="linksCard" style="display: none;">
+        <div class="card-header-row">
+          <div class="card-header-title">
+            <svg class="card-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"></path>
+              <path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"></path>
+            </svg>
+            <span id="linksTitle">Current Email URLs</span> (<span id="linksCount">0</span>)
+          </div>
+          <span class="feedback-ml-tag" id="emailUrlAverage">Average: --</span>
+        </div>
+        <div class="links-subtext">Each destination is scored separately. URL feedback is stored locally for future
+          model training; it does not retrain the current model.</div>
+        <!-- Live Scan Progress (shown while sequential scan runs) -->
+        <div id="scanProgressContainer" style="display:none; flex-direction:column; gap:5px; padding:0 2px 4px;">
+          <div class="scan-progress-bar">
+            <div class="scan-progress-fill" id="scanProgressFill"></div>
+          </div>
+          <div class="scan-progress-text" id="scanProgressText">Scanning...</div>
+        </div>
+        <div class="links-list" id="linksList">
+          <!-- Populated dynamically -->
+        </div>
+      </div>
+
+    </div>
+
+    <!-- Mail URL Click History (Strictly Webmail Only) -->
+    <div class="mail-clicks-panel" id="mailClicksPanel">
+      <div class="mail-clicks-header" id="mailClicksHeader" role="button" tabindex="0" aria-expanded="false">
+        <div class="mail-clicks-title">
+          <svg class="btn-micro-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <path d="M15 3h4a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2h-4"></path>
+            <polyline points="10 17 15 12 10 7"></polyline>
+            <line x1="15" y1="12" x2="3" y2="12"></line>
+          </svg>
+          <span>Mail URL Click History</span>
+        </div>
+        <span class="mail-clicks-badge" id="mailClicksCountBadge">0 Clicks</span>
+      </div>
+      <div class="mail-clicks-body" id="mailClicksBody" style="display: none;">
+        <div class="mail-clicks-toolbar">
+          <span class="mail-clicks-desc">Audited destination links clicked inside webmail.</span>
+          <button class="mail-clicks-clear-btn" id="btnClearMailClicks" type="button">Clear Log</button>
+        </div>
+        <div class="mail-clicks-list" id="mailClicksList">
+          <div class="mail-clicks-empty">No email link clicks recorded yet.</div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Cloud Intelligence Settings (Optional) -->
+    <div class="cloud-panel" id="cloudPanel">
+      <div class="cloud-panel-header" id="cloudPanelHeader" role="button" tabindex="0" aria-expanded="false">
+        <div class="cloud-panel-title">
+          <svg class="btn-micro-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <path d="M17.5 19H9a7 7 0 1 1 6.71-9h1.79a4.5 4.5 0 1 1 0 9Z"></path>
+          </svg>
+          <span>Cloud Threat Intel</span>
+        </div>
+        <span class="cloud-badge" id="cloudBadge">Local Only</span>
+      </div>
+      <div class="cloud-panel-body" id="cloudPanelBody" style="display: none;">
+        <p class="cloud-panel-hint">Connect to SafeInbox FastAPI / Cloud Run backend for global IOC sync and threat
+          intelligence. Raw email text is never transmitted.</p>
+        <div class="cloud-input-row">
+          <input type="text" id="cloudBackendUrlInput" placeholder="http://localhost:8080 or Cloud Run URL"
+            spellcheck="false" autocomplete="off">
+          <button id="btnConnectCloud" class="cloud-btn" type="button">Connect</button>
+        </div>
+        <div class="cloud-status-text" id="cloudStatusMsg"></div>
+        <div class="cloud-account-row" id="cloudAccountRow">
+          <div class="cloud-account-info">
+            <span class="cloud-account-label" id="cloudAccountStatus">Guest Mode (Local Only)</span>
+          </div>
+          <button class="account-action-btn" id="btnCloudAccountAction" type="button">Sign In / Sign Up</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- Footer -->
+    <footer class="footer">
+      <div class="footer-left">
+        <span>SafeInbox AI v1.1.0</span>
+        <span class="sep">•</span>
+        <a href="welcome.html" target="_blank" class="welcome-guide-link" id="linkOpenWelcome" title="Open SafeInbox AI Welcome, Features & Guidance Tour">📖 Guide</a>
+        <span class="sep">•</span>
+        <a href="terms.html" target="_blank" class="welcome-guide-link" id="linkOpenTerms" title="Open SafeInbox AI Terms & Conditions and Privacy Agreement">📜 Terms</a>
+      </div>
+      <div class="footer-right">
+        <span class="defanged-pill" title="URLs are analyzed locally and are not opened during inspection">🛡️ Local URL Analysis</span>
+      </div>
+    </footer>
+  </div>
+
+  <!-- Authentication Modal (Sign In / Sign Up / Profile) -->
+  <div class="auth-modal-backdrop" id="authModalBackdrop" style="display: none;">
+    <div class="auth-modal-card" role="dialog" aria-modal="true" aria-labelledby="authModalTitle">
+      <div class="auth-modal-header">
+        <div class="auth-modal-brand">
+          <img src="icons/icon48.png" alt="" class="auth-modal-logo">
+          <div class="auth-modal-title" id="authModalTitle">SafeInbox AI Account</div>
+        </div>
+        <button class="auth-modal-close" id="authModalClose" type="button" aria-label="Close dialog">&times;</button>
+      </div>
+
+      <!-- Signed Out View: Tabbed Sign In / Sign Up Forms -->
+      <div id="authSignedOutView">
+        <div class="auth-tabs">
+          <button class="auth-tab-btn active" id="authTabSignInBtn" type="button">Sign In</button>
+          <button class="auth-tab-btn" id="authTabSignUpBtn" type="button">Sign Up</button>
+        </div>
+
+        <!-- Sign In Form -->
+        <form class="auth-form" id="authSignInForm">
+          <div class="auth-form-field">
+            <label for="authSignInEmail" class="auth-label">Email Address</label>
+            <input type="email" id="authSignInEmail" class="auth-input" placeholder="analyst@example.com" required
+              autocomplete="email">
+          </div>
+          <div class="auth-form-field">
+            <label for="authSignInPassword" class="auth-label">Password</label>
+            <input type="password" id="authSignInPassword" class="auth-input" placeholder="••••••••" required
+              autocomplete="current-password">
+          </div>
+          <div class="auth-status-msg" id="authSignInStatus" style="display: none;"></div>
+          <button type="submit" class="auth-submit-btn" id="btnSubmitSignIn">
+            <span>Sign In</span>
+          </button>
+          <div class="auth-switch-text">
+            Don't have an account? <a href="#" id="authLinkToSignUp">Sign Up</a>
+          </div>
+        </form>
+
+        <!-- Sign Up Form (hidden by default) -->
+        <form class="auth-form" id="authSignUpForm" style="display: none;">
+          <div class="auth-form-field">
+            <label for="authSignUpName" class="auth-label">Full Name</label>
+            <input type="text" id="authSignUpName" class="auth-input" placeholder="Security Analyst"
+              autocomplete="name">
+          </div>
+          <div class="auth-form-field">
+            <label for="authSignUpEmail" class="auth-label">Email Address</label>
+            <input type="email" id="authSignUpEmail" class="auth-input" placeholder="analyst@example.com" required
+              autocomplete="email">
+          </div>
+          <div class="auth-form-field">
+            <label for="authSignUpPassword" class="auth-label">Password (min 8 characters)</label>
+            <input type="password" id="authSignUpPassword" class="auth-input" placeholder="••••••••" minlength="8"
+              required autocomplete="new-password">
+          </div>
+          <div class="auth-form-field">
+            <label for="authSignUpConfirmPassword" class="auth-label">Confirm Password</label>
+            <input type="password" id="authSignUpConfirmPassword" class="auth-input" placeholder="••••••••"
+              minlength="8" required autocomplete="new-password">
+          </div>
+          <div class="auth-status-msg" id="authSignUpStatus" style="display: none;"></div>
+          <button type="submit" class="auth-submit-btn" id="btnSubmitSignUp">
+            <span>Create Account</span>
+          </button>
+          <div class="auth-switch-text">
+            Already have an account? <a href="#" id="authLinkToSignIn">Sign In</a>
+          </div>
+        </form>
+      </div>
+
+      <!-- Signed In View: Account Profile & Sign Out -->
+      <div id="authSignedInView" style="display: none;">
+        <div class="auth-profile-card">
+          <div class="auth-avatar" id="authAvatar">👤</div>
+          <div class="auth-profile-details">
+            <div class="auth-profile-name" id="authProfileName">Analyst</div>
+            <div class="auth-profile-email" id="authProfileEmail">analyst@safeinbox.ai</div>
+            <div class="auth-profile-badge">
+              <span class="auth-status-dot online"></span>
+              <span>Active Account</span>
+            </div>
+          </div>
+        </div>
+        <p class="auth-profile-hint">You are signed in. Your extension authenticates with your cloud backend for threat
+          intelligence sync and analyst feedback.</p>
+        <div class="auth-actions-row">
+          <button class="auth-signout-btn" id="btnSubmitSignOut" type="button">Sign Out</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <script src="src/url/urlThreatParser.js"></script>
+  <script src="src/utils/textParser.js"></script>
+  <script src="src/email/urlCandidateExtractor.js"></script>
+  <script src="src/email/emailTextAnalyzer.js"></script>
+  <script src="src/ui/sidepanelController.js"></script>
+</body>
+
+</html>

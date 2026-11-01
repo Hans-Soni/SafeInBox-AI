@@ -1,0 +1,192 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>SafeInbox AI — Terms and Conditions &amp; End-User License Agreement</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@500;600&family=Outfit:wght@600;700;800&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="src/ui/terms.css">
+  <link rel="icon" type="image/png" href="icons/icon48.png">
+</head>
+<body>
+
+  <!-- Top Navbar -->
+  <header class="navbar">
+    <div class="container nav-inner">
+      <a href="welcome.html" class="brand">
+        <img src="icons/icon48.png" alt="SafeInbox AI Shield" class="logo-img">
+        <div class="brand-text">
+          <div class="brand-title">SAFEINBOX<span class="brand-accent">AI</span></div>
+          <div class="brand-sub">LEGAL &amp; PRIVACY COMPLIANCE</div>
+        </div>
+      </a>
+      <div class="nav-actions">
+        <a href="welcome.html" class="btn-nav-back">← Back to Welcome &amp; Guidance</a>
+      </div>
+    </div>
+  </header>
+
+  <!-- Document Header -->
+  <div class="doc-header">
+    <div class="container">
+      <div class="version-badge">
+        <span>📜</span> Official Agreement · Version 1.0.0
+      </div>
+      <h1 class="doc-title">Terms and Conditions of Use</h1>
+      <p class="doc-subtitle">
+        Please read these terms carefully before installing, signing in, or activating SafeInbox AI threat protection services.
+      </p>
+      <div class="doc-meta-row">
+        <div class="meta-item"><strong>Effective Date:</strong> November 1, 2026</div>
+        <div class="meta-item"><strong>Version:</strong> 1.0.0</div>
+        <div class="meta-item"><strong>Architecture:</strong> Zero-Trust Local-First &amp; Cloud Intelligence</div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Main Legal Content Container -->
+  <main class="container terms-main">
+
+    <!-- Legal Articles -->
+    <div class="terms-articles">
+
+      <!-- Article 1 -->
+      <article class="article-section">
+        <h2 class="article-title">1. Acceptance of Terms &amp; Scope of Service</h2>
+        <p>
+          By creating an account, signing in, installing, or continuing to use the SafeInbox AI browser extension or backend APIs ("Service"), you explicitly agree to be bound by these Terms and Conditions ("Terms"). If you do not agree to all terms, you must decline allowance and cease using the Service immediately.
+        </p>
+        <p>
+          SafeInbox AI is an intelligent cybersecurity application engineered to inspect electronic mail messages and web hyperlinks for confusable homograph deception, brand impersonation, deceptive redirects, injection vectors, and social engineering attacks.
+        </p>
+      </article>
+
+      <!-- Article 2 -->
+      <article class="article-section">
+        <h2 class="article-title">2. Local-First Processing &amp; Autonomous Operation</h2>
+        <p>
+          SafeInbox AI is designed with an autonomous, local-first computing architecture. The browser extension operates 100% independently using client-side heuristic engines and local ONNX Runtime Web inference on your device.
+        </p>
+        <div class="terms-callout">
+          <strong>Key Guarantee:</strong> No remote server or cloud backend is required for core threat scoring, in-page hyperlink verification, or suspicious navigation blocking. You may utilize the extension in a completely disconnected or offline state.
+        </div>
+      </article>
+
+      <!-- Article 3 -->
+      <article class="article-section">
+        <h2 class="article-title">3. Scoped Webmail Isolation (Zero Inbox Disruption)</h2>
+        <p>
+          When you use supported webmail services (specifically Google Gmail, Microsoft Outlook Web, and Yahoo Mail), SafeInbox AI strictly isolates its scanning to the active, opened email message container.
+        </p>
+        <ul>
+          <li><strong>No Interface Pollution:</strong> The extension does NOT audit, outline, highlight, or place badges on webmail platform chrome, navigation sidebars (e.g., Inbox, Starred, Sent, Drafts, Purchases), top search bars, user avatars, or settings buttons.</li>
+          <li><strong>Dual Dedicated Banners:</strong> The active email message receives two isolated banners: Banner 1 (Top) for hyperlink audits and Banner 2 (Bottom) for message brand authentication, without altering platform functionality.</li>
+        </ul>
+      </article>
+
+      <!-- Article 4 -->
+      <article class="article-section">
+        <h2 class="article-title">4. General Web Search &amp; External Website Inspection Opt-In</h2>
+        <p>
+          SafeInbox AI respects user sovereignty across external websites and search engines. External link auditing on non-webmail domains is strictly opt-in:
+        </p>
+        <ul>
+          <li>SafeInbox AI displays an isolated consent dialog asking: <em>"Do you want link safety inspections on this site?"</em></li>
+          <li>If you choose <strong>"Always Inspect"</strong>, hyperlink auditing is enabled for that specific host.</li>
+          <li>If you choose <strong>"Leave It"</strong>, the DOM is left completely untouched and no scanning is performed.</li>
+        </ul>
+      </article>
+
+      <!-- Article 5 -->
+      <article class="article-section">
+        <h2 class="article-title">5. Zero-PII &amp; Zero-Retention Privacy Commitment</h2>
+        <p>
+          SafeInbox AI maintains an irreversible Zero-PII (Personally Identifiable Information) data boundary:
+        </p>
+        <div class="terms-callout highlight">
+          <strong>Privacy Safeguards:</strong>
+          Neither raw email body text, personal messages, recipient email addresses, sender addresses, nor subject lines are ever stored in backend databases or persistent cloud logs. Only irreversible SHA-256 cryptographic hashes, sanitized threat indicator vectors, and arithmetic risk scores (0–100) are processed for global IOC lookups.
+        </div>
+      </article>
+
+      <!-- Article 6 -->
+      <article class="article-section">
+        <h2 class="article-title">6. Strict URL vs. Text Storage Partitioning &amp; Zero-Leakage Data</h2>
+        <p>
+          To maintain strict machine learning integrity and user privacy:
+        </p>
+        <ul>
+          <li>URL indicators and Email Text indicators are stored in completely separate database tables, storage partitions, and browser cache keys.</li>
+          <li>Feedback data exported for training, validation, and testing is partitioned deterministically using cryptographic hashing, with mathematical verification guaranteeing zero cross-split data leakage (<code>assert_zero_leakage</code>).</li>
+        </ul>
+      </article>
+
+      <!-- Article 7 -->
+      <article class="article-section">
+        <h2 class="article-title">7. Network Transport Lockdown: HTTPS over TCP Only</h2>
+        <p>
+          All communications between the browser extension and optional cloud backend servers are strictly locked to <strong>HTTPS over TCP</strong>:
+        </p>
+        <ul>
+          <li>Cleartext HTTP connections to remote servers are blocked client-side before any network packet is dispatched.</li>
+          <li>The backend enforces HTTP Strict Transport Security (HSTS) with a 2-year duration (<code>max-age=63072000; includeSubDomains; preload</code>), preventing SSL-stripping and man-in-the-middle downgrade attacks.</li>
+          <li>Non-TCP protocols (e.g. UDP, ICMP) and non-standard ports are rejected at the container boundary.</li>
+        </ul>
+      </article>
+
+      <!-- Article 8 -->
+      <article class="article-section">
+        <h2 class="article-title">8. Terms Consent Logging &amp; Telemetry Audit Record</h2>
+        <p>
+          To satisfy regulatory and security compliance, when you affirmatively click and grant allowance to these Terms, SafeInbox AI records an immutable consent audit log containing:
+        </p>
+        <ul>
+          <li><strong>User Email ID:</strong> The email address provided during authentication or registration.</li>
+          <li><strong>Client IP Address:</strong> The network address from which the consent request was transmitted.</li>
+          <li><strong>MAC / Device Hardware Identifier:</strong> Under standard browser sandboxing and W3C anti-fingerprinting privacy standards, direct access to physical network adapter MAC addresses is restricted by Chromium; where restricted, the system records <code>N/A (Browser Sandbox Restricted: W3C Anti-Fingerprinting Policy)</code> alongside client platform identifiers.</li>
+          <li><strong>Terms Version:</strong> The specific agreement version accepted (currently <code>1.0.0</code>).</li>
+          <li><strong>Timestamp:</strong> The exact date and time in Coordinated Universal Time (UTC) when allowance was granted.</li>
+        </ul>
+        <p>
+          Additionally, user click history on inspected URLs inside webmail is saved locally in browser storage (bounded to 500 records) strictly for user security review and is never tracked across general web browsing.
+        </p>
+      </article>
+
+      <!-- Article 9 -->
+      <article class="article-section">
+        <h2 class="article-title">9. Advisory Security Heuristics &amp; Limitation of Liability</h2>
+        <p>
+          SafeInbox AI provides automated threat scores and heuristic assessments on an "AS IS" and "AS AVAILABLE" basis.
+        </p>
+        <p>
+          While the threat engine utilizes advanced linguistic and structural indicators (Levenshtein brand distance, homograph unmasking, high-entropy DGA analysis, redirect unmasking), no automated tool can guarantee 100% defense against novel, uncataloged zero-day threats. SafeInbox AI serves as a defense-in-depth advisory layer; users remain ultimately responsible for exercising caution before submitting sensitive credentials or financial information.
+        </p>
+      </article>
+
+      <!-- Article 10 -->
+      <article class="article-section">
+        <h2 class="article-title">10. User Responsibilities &amp; Termination</h2>
+        <p>
+          You agree not to: (a) reverse-engineer or attempt to extract proprietary heuristic rulesets for malicious offensive deployment; (b) conduct denial-of-service, scraping, or brute-force attacks against the backend API; or (c) use the Service for any unlawful or abusive purpose.
+        </p>
+        <p>
+          Violation of these Terms may result in immediate suspension or termination of your cloud authentication account. Material modifications to these Terms will be published with an incremented version number, requiring renewed consent upon subsequent sign-in.
+        </p>
+      </article>
+
+    </div>
+  </main>
+
+  <!-- Footer -->
+  <footer class="footer">
+    <div class="container">
+      <div class="footer-copy">
+        SafeInbox AI v1.1.0 · Terms and Conditions of Use (v1.0.0) · Zero-Trust Client-Side Security Architecture
+      </div>
+    </div>
+  </footer>
+</body>
+</html>
+

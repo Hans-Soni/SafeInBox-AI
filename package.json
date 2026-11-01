@@ -1,0 +1,21 @@
+{
+  "name": "safeinbox-url-threat-engine",
+  "private": true,
+  "version": "1.1.0",
+  "description": "Browser-side URL threat analysis with optional ONNX Runtime Web inference.",
+  "scripts": {
+    "test": "node --test extension/tests/*.test.js",
+    "check:email-demo": "node tools/check-email-demo.js",
+    "setup:email-demo": "node tools/check-email-demo.js",
+    "sync:onnx-runtime": "node tools/sync-onnx-runtime.js",
+    "postinstall": "node tools/sync-onnx-runtime.js"
+  },
+  "engines": {
+    "node": ">=20"
+  },
+  "dependencies": {
+    "@neon/config": "^1.10.0",
+    "@neon/env": "^1.6.8",
+    "onnxruntime-web": "1.22.0"
+  }
+}

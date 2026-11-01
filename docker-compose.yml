@@ -1,0 +1,40 @@
+services:
+  db:
+    image: postgres:16-alpine
+    container_name: safeinbox-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: safeinbox
+      POSTGRES_USER: safeinbox
+      POSTGRES_PASSWORD: safeinbox_password
+    ports:
+      # Bound strictly to localhost loopback on TCP port 5432 only
+      - "127.0.0.1:5432:5432/tcp"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U safeinbox -d safeinbox"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: safeinbox-api
+    restart: unless-stopped
+    environment:
+      - DATABASE_URL=postgresql+asyncpg://safeinbox:safeinbox_password@db:5432/safeinbox
+      - ENVIRONMENT=production
+      - PORT=8080
+    ports:
+      # Bound strictly to TCP port 8080 only
+      - "127.0.0.1:8080:8080/tcp"
+    depends_on:
+      db:
+        condition: service_healthy
+
+volumes:
+  postgres_data:
+

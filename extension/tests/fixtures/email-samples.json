@@ -1,0 +1,28 @@
+[
+  {
+    "name": "synthetic-paypal-impersonation",
+    "email": {
+      "sender": "PayPal Security <alert@gmail.com>",
+      "receiver": "customer@example.test",
+      "subject": "URGENT ACTION REQUIRED: unclaimed refund",
+      "body": "Verify your password within 2 hours or legal action may follow. Payment amount: $649.99. Visit https://example.test/account."
+    },
+    "expectedVectors": [
+      "SENDER_SPOOFING",
+      "ARTIFICIAL_URGENCY",
+      "FINANCIAL_SCAM",
+      "CREDENTIAL_HARVESTING",
+      "BEHAVIORAL_MANIPULATION"
+    ]
+  },
+  {
+    "name": "synthetic-benign-project-update",
+    "email": {
+      "sender": "Morgan Lee <morgan@company.example.test>",
+      "receiver": "team@company.example.test",
+      "subject": "Project meeting notes",
+      "body": "The notes from today's planning meeting are ready for review."
+    },
+    "expectedVectors": []
+  }
+]

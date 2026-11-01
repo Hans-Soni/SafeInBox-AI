@@ -1,0 +1,37 @@
+# Virtual environment
+.venv/
+venv/
+ENV/
+
+# Python cache
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.pytest_cache/
+node_modules/
+
+# Data safety - never commit raw sensitive or unauthorized threat datasets
+# Only committed samples should be defanged synthetic or public benchmarks
+data/raw/*
+!data/raw/.gitkeep
+!data/raw/README.md
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# Logs and scratch
+logs/*.log
+scratch/
+
+# Database files
+*.db
+*.db-journal
+*.db-wal
+*.db-shm
+.neon
+*.zip
+
+# Large vendor WASM binaries (synced automatically via npm postinstall)
+extension/vendor/*.wasm

@@ -1,0 +1,361 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>SafeInbox AI - Complete System Architecture & Pipeline Diagram</title>
+  <style>
+    :root {
+      --bg: #0b0f19;
+      --card-bg: rgba(26, 34, 53, 0.85);
+      --card-border: #2e3b55;
+      --accent-coral: #FFA586;
+      --accent-crimson: #B51A2B;
+      --accent-blue: #38bdf8;
+      --accent-purple: #c084fc;
+      --text-main: #f8fafc;
+      --text-sub: #94a3b8;
+    }
+
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+      background: var(--bg);
+      color: var(--text-main);
+      padding: 30px;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+    }
+
+    .toolbar {
+      display: flex;
+      gap: 15px;
+      margin-bottom: 25px;
+      position: sticky;
+      top: 15px;
+      z-index: 100;
+      background: rgba(11, 15, 25, 0.9);
+      padding: 10px 20px;
+      border-radius: 30px;
+      border: 1px solid var(--card-border);
+      backdrop-filter: blur(10px);
+    }
+
+    .btn {
+      background: linear-gradient(135deg, #242F40, #10152F);
+      color: var(--text-main);
+      border: 1px solid var(--accent-coral);
+      padding: 10px 20px;
+      border-radius: 20px;
+      cursor: pointer;
+      font-weight: 600;
+      font-size: 13px;
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      transition: all 0.2s;
+    }
+    .btn:hover {
+      background: var(--accent-coral);
+      color: #10152F;
+      box-shadow: 0 0 15px rgba(255, 165, 134, 0.4);
+    }
+
+    .diagram-container {
+      background: radial-gradient(circle at 50% 20%, #151b2e 0%, #0b0f19 80%);
+      border: 1px solid var(--card-border);
+      border-radius: 16px;
+      padding: 35px;
+      max-width: 1300px;
+      width: 100%;
+      box-shadow: 0 20px 50px rgba(0, 0, 0, 0.7);
+    }
+
+    header {
+      text-align: center;
+      margin-bottom: 35px;
+    }
+    h1 {
+      font-size: 26px;
+      letter-spacing: 1px;
+      color: var(--accent-coral);
+      margin-bottom: 8px;
+    }
+    p.subtitle {
+      color: var(--text-sub);
+      font-size: 13px;
+    }
+
+    /* SVG Canvas */
+    svg {
+      width: 100%;
+      height: auto;
+      display: block;
+    }
+
+    @media print {
+      body { padding: 0; background: #fff; color: #000; }
+      .toolbar { display: none; }
+      .diagram-container { box-shadow: none; border: none; max-width: 100%; }
+    }
+  </style>
+</head>
+<body>
+
+  <div class="toolbar">
+    <button class="btn" onclick="saveAsPdf()">📄 Save / Print as PDF</button>
+    <button class="btn" onclick="downloadAsPng()">🖼️ Download Image (PNG)</button>
+  </div>
+
+  <div class="diagram-container" id="diagramContainer">
+    <header>
+      <h1>SAFEINBOX AI — SYSTEM ARCHITECTURE & PIPELINE MAP</h1>
+      <p class="subtitle">Complete Connection Graph: Chrome Extension (MV3) • Fast-API Cloud Run • Zero-PII PostgreSQL Store</p>
+    </header>
+
+    <svg id="architectureSvg" viewBox="0 0 1200 900" xmlns="http://www.w3.org/2000/svg">
+      <defs>
+        <!-- Arrowhead Marker -->
+        <marker id="arrow" viewBox="0 0 10 10" refX="6" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse">
+          <path d="M 0 1 L 10 5 L 0 9 z" fill="#FFA586"/>
+        </marker>
+        <marker id="arrow-blue" viewBox="0 0 10 10" refX="6" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse">
+          <path d="M 0 1 L 10 5 L 0 9 z" fill="#38bdf8"/>
+        </marker>
+        <marker id="arrow-purple" viewBox="0 0 10 10" refX="6" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse">
+          <path d="M 0 1 L 10 5 L 0 9 z" fill="#c084fc"/>
+        </marker>
+
+        <!-- Gradients -->
+        <linearGradient id="cardGrad" x1="0" y1="0" x2="1" y2="1">
+          <stop offset="0%" stop-color="#1e293b"/>
+          <stop offset="100%" stop-color="#0f172a"/>
+        </linearGradient>
+        <linearGradient id="extGrad" x1="0" y1="0" x2="1" y2="1">
+          <stop offset="0%" stop-color="#161f36"/>
+          <stop offset="100%" stop-color="#0f1424"/>
+        </linearGradient>
+      </defs>
+
+      <!-- ============================================================== -->
+      <!-- SECTION 1: BROWSER EXTENSION (MV3)                             -->
+      <!-- ============================================================== -->
+      <rect x="30" y="20" width="540" height="850" rx="14" fill="url(#extGrad)" stroke="#FFA586" stroke-width="1.5" stroke-dasharray="6,4"/>
+      <text x="50" y="52" fill="#FFA586" font-size="16" font-weight="bold">1. CLIENT-SIDE BROWSER EXTENSION (Chrome / Edge / Brave)</text>
+      <text x="50" y="70" fill="#94a3b8" font-size="11">Fully Autonomous • Offline Heuristics • Local ONNX Runtime Web</text>
+
+      <!-- In-Page Webmail contentScript.js -->
+      <g transform="translate(50, 95)">
+        <rect width="230" height="90" rx="8" fill="#1e293b" stroke="#384358" stroke-width="1.2"/>
+        <text x="12" y="24" fill="#FFA586" font-size="12" font-weight="bold">contentScript.js</text>
+        <text x="12" y="42" fill="#e2e8f0" font-size="10.5">Strictly Scoped to Open Email</text>
+        <text x="12" y="58" fill="#94a3b8" font-size="9.5">• Gmail: .a3s.aiL / .adn.ads</text>
+        <text x="12" y="72" fill="#94a3b8" font-size="9.5">• Injects Top Webmail Security Banner</text>
+      </g>
+
+      <!-- urlLinkScanner.js -->
+      <g transform="translate(310, 95)">
+        <rect width="240" height="90" rx="8" fill="#1e293b" stroke="#384358" stroke-width="1.2"/>
+        <text x="12" y="24" fill="#38bdf8" font-size="12" font-weight="bold">urlLinkScanner.js</text>
+        <text x="12" y="42" fill="#e2e8f0" font-size="10.5">General Web Browsing Guard</text>
+        <text x="12" y="58" fill="#94a3b8" font-size="9.5">• Runs on standard websites</text>
+        <text x="12" y="72" fill="#fca5a5" font-size="9.5">🛡️ Excludes Webmail platform chrome</text>
+      </g>
+
+      <!-- Shared Parsers Box -->
+      <g transform="translate(50, 220)">
+        <rect width="500" height="110" rx="8" fill="#10152F" stroke="#B51A2B" stroke-width="1.2"/>
+        <text x="15" y="24" fill="#FFA586" font-size="12" font-weight="bold">Client-Side Threat Engines & Normalizers</text>
+        
+        <rect x="15" y="38" width="225" height="60" rx="6" fill="#1e293b" stroke="#384358"/>
+        <text x="25" y="56" fill="#38bdf8" font-size="10.5" font-weight="bold">urlThreatParser.js</text>
+        <text x="25" y="72" fill="#94a3b8" font-size="9">IDN Homographs, DGA Entropy,</text>
+        <text x="25" y="86" fill="#94a3b8" font-size="9">SQLi ReDoS Safe, IP Decoders</text>
+
+        <rect x="255" y="38" width="235" height="60" rx="6" fill="#1e293b" stroke="#384358"/>
+        <text x="265" y="56" fill="#FFA586" font-size="10.5" font-weight="bold">textParser.js & emailTextAnalyzer.js</text>
+        <text x="265" y="72" fill="#94a3b8" font-size="9">HTML Stripper, PII Masking,</text>
+        <text x="265" y="86" fill="#94a3b8" font-size="9">WordPiece Tokens & Urgency Vectors</text>
+      </g>
+
+      <!-- Service Worker -->
+      <g transform="translate(50, 365)">
+        <rect width="500" height="95" rx="8" fill="#1e293b" stroke="#FFA586" stroke-width="1.5"/>
+        <text x="15" y="24" fill="#FFA586" font-size="13" font-weight="bold">serviceWorker.js (MV3 Background Hub)</text>
+        <text x="15" y="44" fill="#cbd5e1" font-size="10.5">• SHA-256 Request Routing & Cache Deduplication</text>
+        <text x="15" y="60" fill="#cbd5e1" font-size="10.5">• Manages Context Menus & Native Side Panel Actions</text>
+        <text x="15" y="76" fill="#cbd5e1" font-size="10.5">• Controls Offscreen ML inference and Remote HTTPS API Bridge</text>
+      </g>
+
+      <!-- Sidepanel & Offscreen -->
+      <g transform="translate(50, 490)">
+        <rect width="235" height="110" rx="8" fill="#1e293b" stroke="#384358" stroke-width="1.2"/>
+        <text x="12" y="24" fill="#FFA586" font-size="12" font-weight="bold">sidepanelController.js</text>
+        <text x="12" y="42" fill="#e2e8f0" font-size="10">Side Panel Views (sidepanel.html):</text>
+        <text x="12" y="58" fill="#94a3b8" font-size="9.5">1. Summary Score Card</text>
+        <text x="12" y="74" fill="#94a3b8" font-size="9.5">2. URL Sequential Scanner</text>
+        <text x="12" y="90" fill="#94a3b8" font-size="9.5">3. Context Scanning & Feedback</text>
+      </g>
+
+      <g transform="translate(310, 490)">
+        <rect width="240" height="110" rx="8" fill="#1e293b" stroke="#384358" stroke-width="1.2"/>
+        <text x="12" y="24" fill="#c084fc" font-size="12" font-weight="bold">textMlWorker.js & offscreen.html</text>
+        <text x="12" y="42" fill="#e2e8f0" font-size="10">Local ONNX Inference Engine:</text>
+        <text x="12" y="58" fill="#94a3b8" font-size="9.5">• ONNX Runtime Web (WASM)</text>
+        <text x="12" y="74" fill="#94a3b8" font-size="9.5">• WordPiece Tensor Processing</text>
+        <text x="12" y="90" fill="#94a3b8" font-size="9.5">• 35-sec Host Timeout Protection</text>
+      </g>
+
+      <!-- Isolated Storage Compartments -->
+      <g transform="translate(50, 630)">
+        <rect width="500" height="215" rx="8" fill="#0f172a" stroke="#B51A2B" stroke-width="1.2"/>
+        <text x="15" y="24" fill="#FFA586" font-size="12" font-weight="bold">Browser Storage Separation (chrome.storage)</text>
+
+        <!-- Box 1: URL Cache -->
+        <rect x="15" y="38" width="225" height="75" rx="6" fill="#1e293b" stroke="#384358"/>
+        <text x="25" y="56" fill="#38bdf8" font-size="10.5" font-weight="bold">URL Storage Cache</text>
+        <text x="25" y="72" fill="#94a3b8" font-size="9">Key: urlThreatScan:&lt;sha256&gt;</text>
+        <text x="25" y="86" fill="#94a3b8" font-size="9">• 7-day TTL, max 500 entries</text>
+        <text x="25" y="100" fill="#94a3b8" font-size="9">• Hostname & Threat Vector list</text>
+
+        <!-- Box 2: Email Cache -->
+        <rect x="255" y="38" width="230" height="75" rx="6" fill="#1e293b" stroke="#384358"/>
+        <text x="265" y="56" fill="#c084fc" font-size="10.5" font-weight="bold">Email Text Storage Cache</text>
+        <text x="265" y="72" fill="#94a3b8" font-size="9">Key: emailThreatScan:&lt;sha256&gt;</text>
+        <text x="265" y="86" fill="#94a3b8" font-size="9">• 24-hr TTL, max 200 entries</text>
+        <text x="265" y="100" fill="#34d399" font-size="9">🛡️ Body, sender, subject stripped</text>
+
+        <!-- Box 3: Training Feedback -->
+        <rect x="15" y="125" width="470" height="75" rx="6" fill="#1e293b" stroke="#384358"/>
+        <text x="25" y="145" fill="#FFA586" font-size="11" font-weight="bold">Training Datasets (Local Safe/Threat Feedback)</text>
+        <text x="25" y="165" fill="#94a3b8" font-size="9.5">1. URL Training Pool: offline_url_feedback (Max 100 items, 4096 char bounds)</text>
+        <text x="25" y="185" fill="#94a3b8" font-size="9.5">2. Text Training Pool: offline_text_feedback (Max 100 items, 20000 char bounds)</text>
+      </g>
+
+      <!-- ============================================================== -->
+      <!-- SECTION 2: NETWORK & CLOUD BACKEND                             -->
+      <!-- ============================================================== -->
+      <rect x="630" y="20" width="540" height="495" rx="14" fill="url(#cardGrad)" stroke="#38bdf8" stroke-width="1.5"/>
+      <text x="650" y="52" fill="#38bdf8" font-size="16" font-weight="bold">2. CLOUD INTELLIGENCE API (FastAPI / Cloud Run)</text>
+      <text x="650" y="70" fill="#94a3b8" font-size="11">Encrypted Ingress • Microservice Architecture • Port 8080/tcp</text>
+
+      <!-- Ingress Boundary -->
+      <g transform="translate(650, 95)">
+        <rect width="500" height="75" rx="8" fill="#10152F" stroke="#B51A2B" stroke-width="1.2"/>
+        <text x="15" y="24" fill="#FFA586" font-size="12" font-weight="bold">Protocol & Network Boundary</text>
+        <text x="15" y="44" fill="#34d399" font-size="10.5">🔒 HTTPS & TCP ONLY (Edge Port 443 ➔ Container Port 8080/tcp)</text>
+        <text x="15" y="60" fill="#fca5a5" font-size="10">⛔ All UDP, ICMP, and cleartext HTTP non-secure requests blocked</text>
+      </g>
+
+      <!-- Security Middleware -->
+      <g transform="translate(650, 185)">
+        <rect width="500" height="60" rx="8" fill="#1e293b" stroke="#384358" stroke-width="1.2"/>
+        <text x="15" y="24" fill="#38bdf8" font-size="11.5" font-weight="bold">SecurityTransportMiddleware (app/main.py)</text>
+        <text x="15" y="42" fill="#cbd5e1" font-size="9.5">HSTS (max-age=63072000) • CSP: default-src 'none' • X-Frame-Options: DENY • nosniff</text>
+      </g>
+
+      <!-- REST Endpoints -->
+      <g transform="translate(650, 260)">
+        <rect width="500" height="110" rx="8" fill="#0f172a" stroke="#384358" stroke-width="1.2"/>
+        <text x="15" y="24" fill="#FFA586" font-size="12" font-weight="bold">REST API Routers (backend/app/routers/)</text>
+
+        <rect x="15" y="38" width="230" height="60" rx="6" fill="#1e293b" stroke="#384358"/>
+        <text x="25" y="56" fill="#38bdf8" font-size="10.5" font-weight="bold">POST /api/v1/scan/url</text>
+        <text x="25" y="74" fill="#94a3b8" font-size="9">Global IOC cache lookup</text>
+        <text x="25" y="88" fill="#94a3b8" font-size="9">& brand threat reputation</text>
+
+        <rect x="255" y="38" width="230" height="60" rx="6" fill="#1e293b" stroke="#384358"/>
+        <text x="265" y="56" fill="#c084fc" font-size="10.5" font-weight="bold">POST /api/v1/scan/email</text>
+        <text x="265" y="74" fill="#94a3b8" font-size="9">Server-side email analyzer</text>
+        <text x="265" y="88" fill="#34d399" font-size="9">Zero-PII hash audit log</text>
+      </g>
+
+      <!-- Dataset Manager -->
+      <g transform="translate(650, 385)">
+        <rect width="500" height="110" rx="8" fill="#1e293b" stroke="#34d399" stroke-width="1.2"/>
+        <text x="15" y="24" fill="#34d399" font-size="12" font-weight="bold">Dataset Manager & Feedback Splitter (dataset_manager.py)</text>
+        <text x="15" y="44" fill="#cbd5e1" font-size="10">• GET /api/v1/feedback?target_type=URL (Strict URL pool)</text>
+        <text x="15" y="60" fill="#cbd5e1" font-size="10">• GET /api/v1/feedback?target_type=TEXT (Strict Text pool)</text>
+        <text x="15" y="78" fill="#cbd5e1" font-size="10">• GET /api/v1/feedback/export-split (Deterministic 80/10/10 split)</text>
+        <text x="15" y="96" fill="#FFA586" font-size="10.5" font-weight="bold">🛡️ Mathematical Zero Data Leakage (assert_zero_leakage)</text>
+      </g>
+
+      <!-- ============================================================== -->
+      <!-- SECTION 3: DATABASE & PRIVACY BOUNDARY                         -->
+      <!-- ============================================================== -->
+      <rect x="630" y="535" width="540" height="335" rx="14" fill="url(#cardGrad)" stroke="#c084fc" stroke-width="1.5"/>
+      <text x="650" y="565" fill="#c084fc" font-size="16" font-weight="bold">3. PERSISTENCE & PRIVACY BOUNDARY (PostgreSQL 16)</text>
+      <text x="650" y="583" fill="#94a3b8" font-size="11">Alembic Versioning • Dual SQLite/Postgres Async Engine • Zero Raw PII</text>
+
+      <g transform="translate(650, 600)">
+        <!-- Table 1: threat_urls -->
+        <rect x="0" y="0" width="500" height="65" rx="6" fill="#1e293b" stroke="#384358"/>
+        <text x="15" y="24" fill="#38bdf8" font-size="11" font-weight="bold">Table: threat_urls</text>
+        <text x="15" y="42" fill="#cbd5e1" font-size="9.5">Columns: id, url_hash (SHA-256), canonical_url, hostname, risk_score, attack_types, findings</text>
+        <text x="15" y="56" fill="#94a3b8" font-size="9">Purpose: Fast global threat cache and IOC lookups</text>
+
+        <!-- Table 2: scan_audit_logs -->
+        <rect x="0" y="80" width="500" height="75" rx="6" fill="#10152F" stroke="#B51A2B"/>
+        <text x="15" y="104" fill="#FFA586" font-size="11" font-weight="bold">Table: scan_audit_logs (Strict Privacy Boundary)</text>
+        <text x="15" y="122" fill="#cbd5e1" font-size="9.5">Columns: id, scan_type ('URL' / 'EMAIL'), content_hash (SHA-256), risk_score, threat_vectors</text>
+        <text x="15" y="138" fill="#34d399" font-size="9.5" font-weight="bold">🛡️ Zero raw email body text, subject lines, or email addresses stored!</text>
+
+        <!-- Table 3: feedback_records -->
+        <rect x="0" y="170" width="500" height="80" rx="6" fill="#1e293b" stroke="#384358"/>
+        <text x="15" y="194" fill="#c084fc" font-size="11" font-weight="bold">Table: feedback_records (Model Training Ground Truth)</text>
+        <text x="15" y="212" fill="#cbd5e1" font-size="9.5">Columns: id, target_hash, target_type ('URL' vs 'TEXT'), is_safe, source, target_sample</text>
+        <text x="15" y="230" fill="#94a3b8" font-size="9">Partitioning: URL data and Text data are kept strictly in separate subsets</text>
+      </g>
+
+      <!-- Connecting Lines with Glowing Flow -->
+      <path d="M 165 185 L 165 220" stroke="#FFA586" stroke-width="2" marker-end="url(#arrow)"/>
+      <path d="M 430 185 L 430 220" stroke="#38bdf8" stroke-width="2" marker-end="url(#arrow-blue)"/>
+      <path d="M 300 330 L 300 365" stroke="#FFA586" stroke-width="2" marker-end="url(#arrow)"/>
+      <path d="M 165 460 L 165 490" stroke="#FFA586" stroke-width="2" marker-end="url(#arrow)"/>
+      <path d="M 430 460 L 430 490" stroke="#c084fc" stroke-width="2" marker-end="url(#arrow-purple)"/>
+      
+      <!-- Bridge to Cloud -->
+      <path d="M 550 412 L 650 132" stroke="#FFA586" stroke-width="2" stroke-dasharray="5,5" marker-end="url(#arrow)"/>
+      
+      <!-- Cloud to DB -->
+      <path d="M 900 495 L 900 535" stroke="#38bdf8" stroke-width="2" marker-end="url(#arrow-blue)"/>
+    </svg>
+  </div>
+
+  <script>
+    function saveAsPdf() {
+      window.print();
+    }
+
+    function downloadAsPng() {
+      const svg = document.getElementById("architectureSvg");
+      const serializer = new XMLSerializer();
+      const svgStr = serializer.serializeToString(svg);
+
+      const canvas = document.createElement("canvas");
+      canvas.width = 2400; // 2x high resolution
+      canvas.height = 1800;
+      const ctx = canvas.getContext("2d");
+
+      const img = new Image();
+      const svgBlob = new Blob([svgStr], { type: "image/svg+xml;charset=utf-8" });
+      const url = URL.createObjectURL(svgBlob);
+
+      img.onload = function() {
+        ctx.fillStyle = "#0b0f19";
+        ctx.fillRect(0, 0, canvas.width, canvas.height);
+        ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
+        URL.revokeObjectURL(url);
+
+        const a = document.createElement("a");
+        a.download = "safeinbox_ai_architecture_diagram.png";
+        a.href = canvas.toDataURL("image/png");
+        a.click();
+      };
+      img.src = url;
+    }
+  </script>
+</body>
+</html>
+

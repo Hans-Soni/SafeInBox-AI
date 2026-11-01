@@ -1,0 +1,66 @@
+{
+  "manifest_version": 3,
+  "name": "SafeInbox AI - Intelligent Email Protection & Threat Detection",
+  "version": "1.0.0",
+  "description": "Local URL and email threat checks with optional ONNX Runtime Web models.",
+  "permissions": [
+    "activeTab",
+    "tabs",
+    "scripting",
+    "storage",
+    "offscreen",
+    "sidePanel",
+    "contextMenus",
+    "clipboardWrite"
+  ],
+  "host_permissions": ["<all_urls>"],
+  "action": {
+    "default_title": "SafeInbox AI Threat Inspector",
+    "default_icon": {
+      "16": "icons/icon16.png",
+      "48": "icons/icon48.png",
+      "128": "icons/icon128.png"
+    }
+  },
+  "side_panel": {
+    "default_path": "sidepanel.html"
+  },
+  "icons": {
+    "16": "icons/icon16.png",
+    "48": "icons/icon48.png",
+    "128": "icons/icon128.png"
+  },
+  "background": {
+    "service_worker": "src/background/serviceWorker.js"
+  },
+  "content_security_policy": {
+    "extension_pages": "script-src 'self' 'wasm-unsafe-eval'; object-src 'self';"
+  },
+  "content_scripts": [
+    {
+      "matches": ["<all_urls>"],
+      "js": [
+        "src/url/urlThreatParser.js",
+        "src/content/urlLinkScanner.js"
+      ],
+      "run_at": "document_idle"
+    },
+    {
+      "matches": [
+        "*://mail.google.com/*",
+        "*://outlook.live.com/*",
+        "*://outlook.office.com/*",
+        "*://mail.yahoo.com/*"
+      ],
+      "js": [
+        "src/url/urlThreatParser.js",
+        "src/email/urlCandidateExtractor.js",
+        "src/utils/textParser.js",
+        "src/email/emailTextAnalyzer.js",
+        "src/content/contentScript.js"
+      ],
+      "css": ["src/content/webmailScanner.css"],
+      "run_at": "document_idle"
+    }
+  ]
+}

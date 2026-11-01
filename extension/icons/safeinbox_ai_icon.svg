@@ -1,0 +1,37 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 320 320" width="320" height="320">
+  <defs>
+    <radialGradient id="iconBg" cx="50%" cy="35%" r="65%">
+      <stop offset="0%" stop-color="#242F40"/>
+      <stop offset="100%" stop-color="#10152F"/>
+    </radialGradient>
+  </defs>
+  <!-- Background Badge -->
+  <rect x="0" y="0" width="320" height="320" rx="64" fill="url(#iconBg)"/>
+  <rect x="2" y="2" width="316" height="316" rx="62" fill="none" stroke="#384358" stroke-width="3"/>
+  
+  <!-- Neural Network Connections -->
+  <g stroke="#384358" stroke-width="2.5" fill="none" stroke-linecap="round" transform="translate(-180, -25)">
+    <path d="M225 120L265 140M210 200L265 185M225 120L210 200M455 120L415 140M470 200L415 185M455 120L470 200M240 268L270 228M440 268L410 228M240 268L210 200M440 268L470 200"/>
+  </g>
+
+  <!-- Neural Network Nodes -->
+  <g transform="translate(-180, -25)">
+    <circle cx="225" cy="120" r="8" fill="#FFA586"/>
+    <circle cx="210" cy="200" r="10" fill="#B51A2B"/>
+    <circle cx="240" cy="268" r="8" fill="#FFA586"/>
+    <circle cx="455" cy="120" r="8" fill="#FFA586"/>
+    <circle cx="470" cy="200" r="10" fill="#B51A2B"/>
+    <circle cx="440" cy="268" r="8" fill="#FFA586"/>
+  </g>
+
+  <!-- Protective Shield -->
+  <g transform="translate(-180, -25)">
+    <path d="M340 70L415 98V185C415 235 380 272 340 292C300 272 265 235 265 185V98Z" fill="#242F40" stroke="#FFA586" stroke-width="6" stroke-linejoin="round"/>
+    <path d="M340 84L402 106V185C402 227 372 258 340 276C308 258 278 227 278 185V106Z" fill="none" stroke="#541A2E" stroke-width="2.5"/>
+    
+    <!-- Envelope (SafeInbox core) -->
+    <rect x="295" y="140" width="90" height="62" rx="7" fill="#FFA586"/>
+    <polygon points="299,144 340,176 381,144" fill="#B51A2B"/>
+    <path d="M299 198L329 173M381 198L351 173" stroke="#541A2E" stroke-width="3.5" stroke-linecap="round" fill="none"/>
+  </g>
+</svg>

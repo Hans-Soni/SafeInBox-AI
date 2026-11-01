@@ -1,0 +1,1062 @@
+/* ==========================================================================
+   AegisAI In-Page Threat Highlights & Floating Webmail Widget
+   ========================================================================== */
+
+.aegisai-threat-flagged {
+  border-bottom: 2px dashed #B51A2B !important;
+  background-color: rgba(181, 26, 43, 0.2) !important;
+  color: #ff8a98 !important;
+  cursor: help !important;
+  transition: all 0.2s ease !important;
+}
+
+.aegisai-threat-flagged:hover {
+  background-color: rgba(181, 26, 43, 0.35) !important;
+  box-shadow: 0 0 10px rgba(181, 26, 43, 0.5) !important;
+}
+
+.aegisai-text-threat-highlight {
+  background: rgba(181, 26, 43, 0.22) !important;
+  border-bottom: 2px solid #B51A2B !important;
+  border-radius: 2px !important;
+  color: inherit !important;
+  cursor: help !important;
+}
+
+/* Floating Quick Badge on Webmail (Gmail / Outlook) */
+.aegisai-floating-badge {
+  position: fixed;
+  bottom: 24px;
+  right: 24px;
+  z-index: 999999;
+  background: linear-gradient(135deg, #541A2E, #242F40);
+  border: 1px solid #FFA586;
+  box-shadow: 0 10px 25px -5px rgba(16, 21, 47, 0.8), 0 0 15px rgba(255, 165, 134, 0.35);
+  border-radius: 30px;
+  padding: 8px 16px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  cursor: pointer;
+  color: #fff;
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+  font-size: 13px;
+  font-weight: 700;
+  transition: all 0.25s ease;
+  user-select: none;
+}
+
+.aegisai-floating-badge:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 12px 30px -5px rgba(16, 21, 47, 0.9), 0 0 22px rgba(255, 165, 134, 0.5);
+  border-color: #FFA586;
+}
+
+.aegisai-badge-icon {
+  font-size: 16px;
+}
+
+.aegisai-badge-label {
+  color: #f8fafc;
+  letter-spacing: 0.3px;
+}
+
+/* In-Page Modal Backdrop */
+.aegisai-modal-backdrop {
+  position: fixed;
+  top: 0;
+  left: 0;
+  width: 100vw;
+  height: 100vh;
+  background: rgba(16, 21, 47, 0.75);
+  backdrop-filter: blur(6px);
+  z-index: 1000000;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.aegisai-modal-box {
+  width: 480px;
+  max-width: 90vw;
+  background: #10152F;
+  border: 1px solid #384358;
+  box-shadow: 0 20px 50px rgba(0, 0, 0, 0.85), 0 0 30px rgba(84, 26, 46, 0.4);
+  border-radius: 14px;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+  color: #f8fafc;
+}
+
+.aegisai-modal-header {
+  padding: 14px 18px;
+  background: #242F40;
+  border-bottom: 1px solid #384358;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+
+.aegisai-modal-title {
+  font-size: 15px;
+  font-weight: 800;
+  color: #FFA586;
+  letter-spacing: 0.5px;
+}
+
+.aegisai-modal-close {
+  background: transparent;
+  border: none;
+  color: #cbd5e1;
+  font-size: 20px;
+  cursor: pointer;
+  line-height: 1;
+}
+
+.aegisai-modal-close:hover {
+  color: #FFA586;
+}
+
+.aegisai-modal-body {
+  padding: 18px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  max-height: 70vh;
+  overflow-y: auto;
+}
+
+.aegisai-modal-risk-row {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  padding: 12px;
+  border-radius: 8px;
+  background: rgba(36, 47, 64, 0.6);
+  border: 1px solid #384358;
+}
+
+.aegisai-modal-risk-row.critical {
+  background: rgba(84, 26, 46, 0.45);
+  border: 1px solid #B51A2B;
+}
+
+.aegisai-modal-score {
+  font-size: 28px;
+  font-weight: 800;
+  color: #FFA586;
+}
+
+.aegisai-modal-score span {
+  font-size: 13px;
+  color: #cbd5e1;
+}
+
+.aegisai-modal-company-box {
+  padding: 10px 12px;
+  border-radius: 6px;
+  background: rgba(36, 47, 64, 0.7);
+  border: 1px solid #384358;
+  font-size: 13px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.aegisai-modal-company-box.impersonation_mismatch {
+  background: rgba(84, 26, 46, 0.45);
+  border-left: 4px solid #B51A2B;
+  color: #ff8a98;
+}
+
+.aegisai-pill {
+  font-size: 10px;
+  font-weight: 800;
+  padding: 2px 6px;
+  border-radius: 4px;
+  background: #B51A2B;
+  color: #fff;
+}
+
+.aegisai-modal-remediation {
+  font-size: 12px;
+  background: rgba(84, 26, 46, 0.35);
+  border-left: 3px solid #FFA586;
+  padding: 8px 10px;
+  border-radius: 4px;
+  color: #f8fafc;
+}
+
+.aegisai-modal-evidence-list {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.aegisai-modal-evidence-item {
+  font-size: 11.5px;
+  padding: 6px 8px;
+  background: rgba(36, 47, 64, 0.6);
+  border-radius: 4px;
+  border-left: 2px solid #FFA586;
+}
+
+.aegisai-modal-evidence-item.critical {
+  border-left-color: #B51A2B;
+}
+
+.aegisai-sev-tag {
+  font-size: 9px;
+  font-weight: 700;
+  color: #FFA586;
+}
+
+/* ==========================================================================
+   AegisAI Automatic In-Page Webmail Security Header Banner
+   ========================================================================== */
+
+.aegisai-banner-container {
+  display: flex !important;
+  flex-direction: column !important;
+  gap: 12px !important;
+  margin: 12px 0 16px 0 !important;
+  width: 100% !important;
+  box-sizing: border-box !important;
+}
+
+.aegisai-banner-container .aegisai-auto-banner {
+  margin: 0 !important;
+}
+
+.aegisai-auto-banner {
+  margin: 12px 0 16px 0 !important;
+  padding: 14px 18px !important;
+  border-radius: 12px !important;
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif !important;
+  color: #f8fafc !important;
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.25) !important;
+  animation: aegisai-slide-down 0.3s ease-out !important;
+  transition: all 0.25s ease !important;
+}
+
+@keyframes aegisai-slide-down {
+  from { opacity: 0; transform: translateY(-8px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+.aegisai-auto-banner.critical {
+  background: linear-gradient(135deg, rgba(84, 26, 46, 0.95), rgba(16, 21, 47, 0.95)) !important;
+  border: 1px solid rgba(181, 26, 43, 0.8) !important;
+  border-left: 6px solid #B51A2B !important;
+  box-shadow: 0 8px 24px rgba(84, 26, 46, 0.5) !important;
+}
+
+.aegisai-auto-banner.high {
+  background: linear-gradient(135deg, rgba(84, 26, 46, 0.75), rgba(36, 47, 64, 0.95)) !important;
+  border: 1px solid rgba(181, 26, 43, 0.6) !important;
+  border-left: 6px solid #B51A2B !important;
+  box-shadow: 0 8px 24px rgba(84, 26, 46, 0.35) !important;
+}
+
+.aegisai-auto-banner.safe {
+  background: linear-gradient(135deg, rgba(36, 47, 64, 0.95), rgba(16, 21, 47, 0.98)) !important;
+  border: 1px solid #384358 !important;
+  border-left: 6px solid #FFA586 !important;
+  box-shadow: 0 8px 24px rgba(16, 21, 47, 0.6) !important;
+}
+
+.aegisai-auto-banner.medium,
+.aegisai-auto-banner.low {
+  background: linear-gradient(135deg, rgba(56, 67, 88, 0.45), rgba(16, 21, 47, 0.95)) !important;
+  border: 1px solid #384358 !important;
+  border-left: 6px solid #FFA586 !important;
+}
+
+.aegisai-banner-main {
+  display: flex !important;
+  align-items: flex-start !important;
+  gap: 14px !important;
+}
+
+.aegisai-banner-icon {
+  font-size: 24px !important;
+  line-height: 1 !important;
+  flex-shrink: 0 !important;
+}
+
+.aegisai-banner-info {
+  flex: 1 !important;
+}
+
+.aegisai-banner-title {
+  display: flex !important;
+  align-items: center !important;
+  gap: 10px !important;
+  font-size: 14px !important;
+  font-weight: 800 !important;
+  letter-spacing: 0.3px !important;
+  margin-bottom: 4px !important;
+}
+
+.aegisai-auto-banner.critical .aegisai-banner-title { color: #ff6b7d !important; }
+.aegisai-auto-banner.high .aegisai-banner-title     { color: #FFA586 !important; }
+.aegisai-auto-banner.safe .aegisai-banner-title     { color: #FFA586 !important; }
+.aegisai-auto-banner.medium .aegisai-banner-title,
+.aegisai-auto-banner.low .aegisai-banner-title    { color: #FFA586 !important; }
+
+.aegisai-banner-score-pill {
+  font-size: 11px !important;
+  font-weight: 800 !important;
+  padding: 3px 10px !important;
+  border-radius: 20px !important;
+  background: #242F40 !important;
+  border: 1px solid #384358 !important;
+  color: #FFA586 !important;
+}
+
+.aegisai-banner-summary {
+  font-size: 13px !important;
+  color: #e2e8f0 !important;
+  margin-bottom: 8px !important;
+  line-height: 1.4 !important;
+}
+
+.aegisai-banner-meta-grid {
+  display: flex !important;
+  flex-wrap: wrap !important;
+  gap: 10px 18px !important;
+  font-size: 11.5px !important;
+  color: #94a3b8 !important;
+  background: rgba(0, 0, 0, 0.25) !important;
+  padding: 6px 12px !important;
+  border-radius: 6px !important;
+}
+
+.aegisai-banner-meta-item strong {
+  color: #cbd5e1 !important;
+}
+
+.aegisai-banner-toggle-btn {
+  background: rgba(255, 255, 255, 0.08) !important;
+  border: 1px solid rgba(255, 255, 255, 0.15) !important;
+  color: #e2e8f0 !important;
+  font-size: 11.5px !important;
+  font-weight: 600 !important;
+  padding: 6px 12px !important;
+  border-radius: 6px !important;
+  cursor: pointer !important;
+  transition: all 0.2s ease !important;
+  flex-shrink: 0 !important;
+}
+
+.aegisai-banner-toggle-btn:hover {
+  background: rgba(255, 255, 255, 0.18) !important;
+  color: #fff !important;
+}
+
+.aegisai-banner-details {
+  margin-top: 12px !important;
+  padding-top: 10px !important;
+  border-top: 1px solid rgba(255, 255, 255, 0.1) !important;
+  display: flex !important;
+  flex-direction: column !important;
+  gap: 8px !important;
+}
+
+.aegisai-banner-evidence-item {
+  font-size: 12px !important;
+  padding: 6px 10px !important;
+  border-radius: 4px !important;
+  background: rgba(0, 0, 0, 0.2) !important;
+  border-left: 3px solid #B51A2B !important;
+  color: #f1f5f9 !important;
+}
+
+.aegisai-banner-evidence-item.safe {
+  border-left-color: #FFA586 !important;
+}
+
+.aegisai-threat-tag {
+  display: inline-block !important;
+  font-size: 10px !important;
+  font-weight: 800 !important;
+  background: #B51A2B !important;
+  color: #fff !important;
+  padding: 1px 6px !important;
+  border-radius: 3px !important;
+  margin-left: 4px !important;
+  vertical-align: middle !important;
+  text-decoration: none !important;
+  box-shadow: 0 0 6px rgba(181, 26, 43, 0.6) !important;
+  pointer-events: none !important;
+}
+
+/* ==========================================================================
+   One-by-One URL Audit Cards & Browser-Local Feedback
+   ========================================================================== */
+.aegisai-banner-urls-section {
+  margin-top: 10px !important;
+  display: flex !important;
+  flex-direction: column !important;
+  gap: 8px !important;
+}
+
+.aegisai-banner-urls-header {
+  font-size: 11.5px !important;
+  font-weight: 700 !important;
+  color: #94a3b8 !important;
+  display: flex !important;
+  align-items: center !important;
+  justify-content: space-between !important;
+  margin-bottom: 2px !important;
+}
+
+.aegisai-ml-badge {
+  font-size: 9.5px !important;
+  font-weight: 700 !important;
+  background: rgba(255, 165, 134, 0.15) !important;
+  color: #FFA586 !important;
+  border: 1px solid rgba(255, 165, 134, 0.3) !important;
+  padding: 1px 6px !important;
+  border-radius: 10px !important;
+  letter-spacing: 0.3px !important;
+}
+
+.aegisai-url-card {
+  background: rgba(36, 47, 64, 0.7) !important;
+  border: 1px solid rgba(255, 255, 255, 0.08) !important;
+  border-left: 3px solid #FFA586 !important;
+  border-radius: 6px !important;
+  padding: 8px 10px !important;
+  display: flex !important;
+  flex-direction: column !important;
+  gap: 6px !important;
+  transition: all 0.2s ease !important;
+}
+
+.aegisai-url-card.threat {
+  border-left-color: #B51A2B !important;
+  background: rgba(181, 26, 43, 0.07) !important;
+}
+
+.aegisai-url-card.warning {
+  border-left-color: #FFA586 !important;
+  background: rgba(84, 26, 46, 0.07) !important;
+}
+
+.aegisai-url-card-top {
+  display: flex !important;
+  align-items: center !important;
+  justify-content: space-between !important;
+  gap: 8px !important;
+}
+
+.aegisai-url-text {
+  font-family: 'JetBrains Mono', Consolas, monospace !important;
+  font-size: 11px !important;
+  color: #FFA586 !important;
+  max-width: 70% !important;
+  white-space: nowrap !important;
+  overflow: hidden !important;
+  text-overflow: ellipsis !important;
+  word-break: break-all !important;
+}
+
+.aegisai-url-score-pill {
+  font-family: 'JetBrains Mono', Consolas, monospace !important;
+  font-size: 10px !important;
+  font-weight: 800 !important;
+  padding: 2px 7px !important;
+  border-radius: 4px !important;
+  flex-shrink: 0 !important;
+}
+
+.aegisai-url-score-pill.safe {
+  background: rgba(255, 165, 134, 0.2) !important;
+  color: #FFA586 !important;
+  border: 1px solid rgba(255, 165, 134, 0.35) !important;
+}
+
+.aegisai-url-score-pill.threat {
+  background: rgba(181, 26, 43, 0.2) !important;
+  color: #ff6b7d !important;
+  border: 1px solid rgba(181, 26, 43, 0.35) !important;
+}
+
+.aegisai-url-score-pill.warning {
+  background: rgba(84, 26, 46, 0.2) !important;
+  color: #FFA586 !important;
+  border: 1px solid rgba(84, 26, 46, 0.35) !important;
+}
+
+.aegisai-url-evidence {
+  font-size: 10.5px !important;
+  color: #cbd5e1 !important;
+  line-height: 1.35 !important;
+}
+
+.aegisai-url-feedback-bar {
+  display: flex !important;
+  align-items: center !important;
+  justify-content: space-between !important;
+  padding-top: 6px !important;
+  border-top: 1px solid rgba(255, 255, 255, 0.06) !important;
+  font-size: 11px !important;
+}
+
+.aegisai-feedback-prompt {
+  color: #94a3b8 !important;
+  font-size: 11px !important;
+}
+
+.aegisai-feedback-buttons {
+  display: flex !important;
+  align-items: center !important;
+  gap: 6px !important;
+}
+
+.aegisai-fb-btn {
+  background: rgba(255, 255, 255, 0.08) !important;
+  border: 1px solid rgba(255, 255, 255, 0.15) !important;
+  color: #f8fafc !important;
+  font-size: 10.5px !important;
+  font-weight: 600 !important;
+  padding: 3px 9px !important;
+  border-radius: 4px !important;
+  cursor: pointer !important;
+  transition: all 0.15s ease !important;
+}
+
+.aegisai-fb-btn:hover {
+  transform: translateY(-1px) !important;
+}
+
+.aegisai-fb-btn.safe:hover {
+  background: rgba(255, 165, 134, 0.25) !important;
+  border-color: #FFA586 !important;
+  color: #FFA586 !important;
+  box-shadow: 0 0 10px rgba(255, 165, 134, 0.3) !important;
+}
+
+.aegisai-fb-btn.threat:hover {
+  background: rgba(181, 26, 43, 0.25) !important;
+  border-color: #B51A2B !important;
+  color: #ff6b7d !important;
+  box-shadow: 0 0 10px rgba(181, 26, 43, 0.3) !important;
+}
+
+.aegisai-fb-confirmed {
+  font-size: 10.5px !important;
+  font-weight: 700 !important;
+  padding: 3px 8px !important;
+  border-radius: 4px !important;
+  display: inline-flex !important;
+  align-items: center !important;
+  gap: 4px !important;
+}
+
+.aegisai-fb-confirmed.safe {
+  background: rgba(255, 165, 134, 0.2) !important;
+  color: #FFA586 !important;
+  border: 1px solid rgba(255, 165, 134, 0.35) !important;
+}
+
+.aegisai-fb-confirmed.threat {
+  background: rgba(181, 26, 43, 0.2) !important;
+  color: #ff6b7d !important;
+  border: 1px solid rgba(181, 26, 43, 0.35) !important;
+}
+
+/* ==========================================================================
+   Email Inspection Fields Card (Sender / Receiver / Subject / Body)
+   Shows inside the in-page verdict banner after email auto-scan
+   ========================================================================== */
+.aegisai-email-fields-card {
+  background: rgba(0, 0, 0, 0.25) !important;
+  border: 1px solid rgba(255, 255, 255, 0.08) !important;
+  border-radius: 8px !important;
+  padding: 10px 12px !important;
+  margin: 8px 0 6px !important;
+  display: flex !important;
+  flex-direction: column !important;
+  gap: 5px !important;
+}
+
+.aegisai-email-fields-title {
+  font-size: 10.5px !important;
+  font-weight: 700 !important;
+  text-transform: uppercase !important;
+  letter-spacing: 0.5px !important;
+  color: #94a3b8 !important;
+  padding-bottom: 5px !important;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.07) !important;
+  margin-bottom: 3px !important;
+}
+
+.aegisai-email-field-row {
+  display: grid !important;
+  grid-template-columns: 58px 1fr !important;
+  gap: 8px !important;
+  align-items: baseline !important;
+}
+
+.aegisai-email-field-row.body-row {
+  align-items: flex-start !important;
+}
+
+.aegisai-ef-label {
+  font-size: 10px !important;
+  font-weight: 700 !important;
+  text-transform: uppercase !important;
+  letter-spacing: 0.4px !important;
+  color: #64748b !important;
+  white-space: nowrap !important;
+}
+
+.aegisai-ef-value {
+  font-size: 11.5px !important;
+  color: #e2e8f0 !important;
+  word-break: break-word !important;
+  line-height: 1.4 !important;
+}
+
+.aegisai-ef-value.body-text {
+  font-size: 11px !important;
+  color: #94a3b8 !important;
+  font-style: italic !important;
+  line-height: 1.45 !important;
+  max-height: 56px !important;
+  overflow: hidden !important;
+  display: -webkit-box !important;
+  -webkit-line-clamp: 3 !important;
+  -webkit-box-orient: vertical !important;
+}
+
+.aegisai-ef-addr {
+  font-size: 10.5px !important;
+  color: #64748b !important;
+  margin-left: 4px !important;
+}
+
+/* ==========================================================================
+   Two-Section Banner Layout
+   Section 1 = URL / Hyperlink Scan   |   Section 2 = Content Analysis
+   ========================================================================== */
+
+.aegisai-scan-section {
+  margin-top: 10px !important;
+  border-radius: 8px !important;
+  border: 1px solid rgba(255, 255, 255, 0.07) !important;
+  overflow: hidden !important;
+}
+
+/* Section 1 — URL scan: subtle cyan tint */
+.aegisai-scan-section.url-section {
+  background: rgba(255, 165, 134, 0.04) !important;
+  border-color: rgba(255, 165, 134, 0.2) !important;
+}
+
+/* Section 2 — Content analysis: subtle indigo tint */
+.aegisai-scan-section.content-section {
+  background: rgba(84, 26, 46, 0.04) !important;
+  border-color: rgba(84, 26, 46, 0.2) !important;
+}
+
+.aegisai-scan-section-header {
+  display: flex !important;
+  align-items: center !important;
+  justify-content: space-between !important;
+  gap: 8px !important;
+  padding: 8px 12px !important;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.07) !important;
+}
+
+.aegisai-scan-section.url-section .aegisai-scan-section-header {
+  background: rgba(255, 165, 134, 0.08) !important;
+}
+
+.aegisai-scan-section.content-section .aegisai-scan-section-header {
+  background: rgba(84, 26, 46, 0.08) !important;
+}
+
+.aegisai-scan-section-title {
+  font-size: 11.5px !important;
+  font-weight: 700 !important;
+  color: #e2e8f0 !important;
+  letter-spacing: 0.2px !important;
+}
+
+.aegisai-scan-section-desc {
+  font-size: 11px !important;
+  color: #94a3b8 !important;
+  padding: 7px 12px 4px !important;
+  line-height: 1.45 !important;
+}
+
+.aegisai-scan-section-desc strong {
+  color: #cbd5e1 !important;
+}
+
+/* Per-section verdict badges */
+.aegisai-section-verdict-badge {
+  font-size: 9.5px !important;
+  font-weight: 800 !important;
+  padding: 2px 8px !important;
+  border-radius: 10px !important;
+  white-space: nowrap !important;
+  flex-shrink: 0 !important;
+  text-transform: uppercase !important;
+  letter-spacing: 0.3px !important;
+}
+
+.aegisai-section-verdict-badge.safe {
+  background: rgba(255, 165, 134, 0.2) !important;
+  color: #FFA586 !important;
+  border: 1px solid rgba(255, 165, 134, 0.35) !important;
+}
+
+.aegisai-section-verdict-badge.threat {
+  background: rgba(181, 26, 43, 0.2) !important;
+  color: #ff6b7d !important;
+  border: 1px solid rgba(181, 26, 43, 0.35) !important;
+}
+
+.aegisai-section-verdict-badge.warn {
+  background: rgba(84, 26, 46, 0.2) !important;
+  color: #FFA586 !important;
+  border: 1px solid rgba(84, 26, 46, 0.35) !important;
+}
+
+/* Empty-state message (no links / no findings) */
+.aegisai-scan-no-items {
+  font-size: 11px !important;
+  color: #64748b !important;
+  padding: 8px 12px 10px !important;
+  font-style: italic !important;
+}
+
+.aegisai-scan-no-items.safe {
+  color: #FFA586 !important;
+  font-style: normal !important;
+  font-weight: 600 !important;
+}
+
+/* URL cards inside section 1 */
+.aegisai-scan-section .aegisai-banner-urls-section {
+  padding: 0 10px 10px !important;
+  margin-top: 2px !important;
+}
+
+/* ==========================================================================
+   Section 2 — Content Findings (text-only results)
+   ========================================================================== */
+
+.aegisai-content-findings {
+  margin: 6px 10px 10px !important;
+  border-radius: 6px !important;
+  background: rgba(0, 0, 0, 0.18) !important;
+  overflow: hidden !important;
+}
+
+.aegisai-content-findings-title {
+  font-size: 10.5px !important;
+  font-weight: 700 !important;
+  text-transform: uppercase !important;
+  letter-spacing: 0.4px !important;
+  color: #94a3b8 !important;
+  padding: 6px 10px !important;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.06) !important;
+  display: flex !important;
+  align-items: center !important;
+  gap: 6px !important;
+}
+
+.aegisai-findings-count {
+  font-size: 11px !important;
+  font-weight: 800 !important;
+  background: rgba(255, 255, 255, 0.1) !important;
+  color: #e2e8f0 !important;
+  padding: 0px 6px !important;
+  border-radius: 10px !important;
+}
+
+/* Individual finding cards (text only — no links inside) */
+.aegisai-content-finding-item {
+  padding: 7px 10px !important;
+  border-left: 3px solid #64748b !important;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.04) !important;
+  background: transparent !important;
+}
+
+.aegisai-content-finding-item.critical {
+  border-left-color: #B51A2B !important;
+  background: rgba(181, 26, 43, 0.05) !important;
+}
+
+.aegisai-content-finding-item.high {
+  border-left-color: #ff6b7d !important;
+  background: rgba(181, 26, 43, 0.04) !important;
+}
+
+.aegisai-content-finding-item.medium {
+  border-left-color: #FFA586 !important;
+}
+
+.aegisai-content-finding-item.low,
+.aegisai-content-finding-item.info {
+  border-left-color: #FFA586 !important;
+}
+
+.aegisai-cfi-top {
+  display: flex !important;
+  align-items: center !important;
+  justify-content: space-between !important;
+  margin-bottom: 3px !important;
+}
+
+.aegisai-cfi-rule {
+  font-size: 9.5px !important;
+  font-weight: 700 !important;
+  font-family: 'JetBrains Mono', Consolas, monospace !important;
+  color: #94a3b8 !important;
+  text-transform: uppercase !important;
+  letter-spacing: 0.3px !important;
+}
+
+.aegisai-cfi-sev {
+  font-size: 9px !important;
+  font-weight: 800 !important;
+  padding: 1px 5px !important;
+  border-radius: 3px !important;
+  text-transform: uppercase !important;
+}
+
+.aegisai-cfi-sev.critical { background: rgba(181, 26, 43, 0.25) !important; color: #ff6b7d !important; }
+.aegisai-cfi-sev.high     { background: rgba(181, 26, 43, 0.15) !important; color: #FFA586 !important; }
+.aegisai-cfi-sev.medium   { background: rgba(84, 26, 46, 0.2) !important; color: #FFA586 !important; }
+.aegisai-cfi-sev.low,
+.aegisai-cfi-sev.info     { background: rgba(255, 165, 134, 0.15) !important; color: #FFA586 !important; }
+
+.aegisai-cfi-text {
+  font-size: 11px !important;
+  color: #cbd5e1 !important;
+  line-height: 1.4 !important;
+}
+
+.aegisai-cfi-remediation {
+  font-size: 10.5px !important;
+  color: #64748b !important;
+  margin-top: 3px !important;
+  font-style: italic !important;
+  line-height: 1.35 !important;
+}
+
+/* Recommended action strip at the bottom of Section 2 */
+.aegisai-content-action {
+  margin: 0 10px 10px !important;
+  padding: 7px 10px !important;
+  border-radius: 6px !important;
+  font-size: 11.5px !important;
+  color: #f8fafc !important;
+  line-height: 1.45 !important;
+  background: rgba(84, 26, 46, 0.1) !important;
+  border-left: 3px solid #FFA586 !important;
+}
+
+.aegisai-content-action.safe {
+  background: rgba(255, 165, 134, 0.1) !important;
+  border-left-color: #FFA586 !important;
+}
+
+/* email-fields-card inside section 2 */
+.aegisai-scan-section .aegisai-email-fields-card {
+  margin: 4px 10px 6px !important;
+}
+
+/* ==========================================================================
+   AegisAI URL Cards & Safe / Threat Feedback Buttons (Banner 1 & Banner 2)
+   ========================================================================== */
+
+.aegisai-url-card {
+  background: rgba(16, 21, 47, 0.9) !important;
+  border: 1px solid #384358 !important;
+  border-radius: 8px !important;
+  padding: 10px 14px !important;
+  margin-top: 8px !important;
+  display: flex !important;
+  flex-direction: column !important;
+  gap: 8px !important;
+  box-sizing: border-box !important;
+  max-width: 100% !important;
+  overflow: hidden !important;
+}
+
+.aegisai-url-card.safe {
+  border-left: 4px solid #FFA586 !important;
+}
+
+.aegisai-url-card.warning {
+  border-left: 4px solid #FFA586 !important;
+}
+
+.aegisai-url-card.threat {
+  border-left: 4px solid #B51A2B !important;
+  background: rgba(84, 26, 46, 0.35) !important;
+}
+
+.aegisai-url-card-top {
+  display: flex !important;
+  align-items: flex-start !important;
+  justify-content: space-between !important;
+  gap: 10px !important;
+  width: 100% !important;
+  box-sizing: border-box !important;
+}
+
+.aegisai-url-text {
+  font-family: 'JetBrains Mono', Consolas, monospace !important;
+  font-size: 11.5px !important;
+  color: #FFA586 !important;
+  word-break: break-all !important;
+  overflow-wrap: anywhere !important;
+  white-space: normal !important;
+  min-width: 0 !important;
+  flex: 1 1 auto !important;
+}
+
+.aegisai-url-score-pill {
+  font-size: 10px !important;
+  font-weight: 800 !important;
+  padding: 2px 7px !important;
+  border-radius: 12px !important;
+  white-space: nowrap !important;
+  background: #242F40 !important;
+  border: 1px solid #384358 !important;
+  flex-shrink: 0 !important;
+}
+
+.aegisai-url-score-pill.safe {
+  color: #FFA586 !important;
+  background: rgba(255, 165, 134, 0.15) !important;
+  border: 1px solid rgba(255, 165, 134, 0.3) !important;
+}
+
+.aegisai-url-score-pill.warning {
+  color: #FFA586 !important;
+  background: rgba(255, 165, 134, 0.15) !important;
+  border: 1px solid rgba(255, 165, 134, 0.3) !important;
+}
+
+.aegisai-url-score-pill.threat {
+  color: #ff6b7d !important;
+  background: rgba(181, 26, 43, 0.25) !important;
+  border: 1px solid #B51A2B !important;
+}
+
+.aegisai-url-evidence {
+  font-size: 11px !important;
+  color: #cbd5e1 !important;
+  line-height: 1.35 !important;
+}
+
+/* Feedback Bar (used in BOTH Banner 1 and Banner 2) */
+.aegisai-url-feedback-bar,
+.aegisai-content-feedback-bar {
+  display: flex !important;
+  flex-wrap: wrap !important;
+  align-items: center !important;
+  justify-content: flex-start !important;
+  background: #242F40 !important;
+  border: 1px solid #384358 !important;
+  border-radius: 8px !important;
+  padding: 8px 12px !important;
+  margin-top: 8px !important;
+  gap: 12px !important;
+  box-sizing: border-box !important;
+  width: 100% !important;
+  max-width: 100% !important;
+}
+
+.aegisai-feedback-prompt {
+  font-size: 12px !important;
+  font-weight: 600 !important;
+  color: #f8fafc !important;
+  letter-spacing: 0.2px !important;
+  display: inline-block !important;
+}
+
+.aegisai-feedback-buttons {
+  display: inline-flex !important;
+  align-items: center !important;
+  gap: 8px !important;
+  flex-shrink: 0 !important;
+}
+
+/* Feedback Buttons: Safe & Threat */
+.aegisai-fb-btn {
+  display: inline-flex !important;
+  align-items: center !important;
+  justify-content: center !important;
+  gap: 5px !important;
+  padding: 6px 14px !important;
+  border-radius: 6px !important;
+  font-size: 12px !important;
+  font-weight: 700 !important;
+  cursor: pointer !important;
+  transition: all 0.2s ease !important;
+  outline: none !important;
+  text-decoration: none !important;
+  line-height: 1.2 !important;
+  min-height: 28px !important;
+  box-shadow: 0 2px 5px rgba(16, 21, 47, 0.4) !important;
+  opacity: 1 !important;
+  visibility: visible !important;
+  user-select: none !important;
+}
+
+.aegisai-fb-btn.safe {
+  background: rgba(255, 165, 134, 0.12) !important;
+  color: #FFA586 !important;
+  border: 1px solid #FFA586 !important;
+}
+
+.aegisai-fb-btn.safe:hover {
+  background: #FFA586 !important;
+  color: #10152F !important;
+  box-shadow: 0 0 12px rgba(255, 165, 134, 0.5) !important;
+  transform: translateY(-1px) !important;
+}
+
+.aegisai-fb-btn.threat {
+  background: #B51A2B !important;
+  color: #ffffff !important;
+  border: 1px solid #B51A2B !important;
+}
+
+.aegisai-fb-btn.threat:hover {
+  background: #d41f33 !important;
+  box-shadow: 0 0 12px rgba(181, 26, 43, 0.6) !important;
+  transform: translateY(-1px) !important;
+}
+
+.aegisai-fb-confirmed {
+  font-size: 11.5px !important;
+  font-weight: 700 !important;
+  padding: 4px 10px !important;
+  border-radius: 6px !important;
+  display: inline-block !important;
+}
+
+.aegisai-fb-confirmed.safe {
+  color: #FFA586 !important;
+  background: rgba(255, 165, 134, 0.18) !important;
+  border: 1px solid #FFA586 !important;
+}
+
+.aegisai-fb-confirmed.threat {
+  color: #ff6b7d !important;
+  background: rgba(84, 26, 46, 0.45) !important;
+  border: 1px solid #B51A2B !important;
+}
