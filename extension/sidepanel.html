@@ -361,6 +361,43 @@
       </div>
     </div>
 
+    <!-- 15-Day Security Digest Panel -->
+    <div class="digest-panel" id="digestPanel">
+      <div class="digest-header" id="digestHeader" role="button" tabindex="0" aria-expanded="false">
+        <div class="digest-title">
+          <svg class="btn-micro-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <rect x="3" y="4" width="18" height="18" rx="2" ry="2"></rect>
+            <line x1="16" y1="2" x2="16" y2="6"></line>
+            <line x1="8" y1="2" x2="8" y2="6"></line>
+            <line x1="3" y1="10" x2="21" y2="10"></line>
+          </svg>
+          <span>15-Day Security Digest</span>
+        </div>
+        <span class="digest-badge" id="digestStatusBadge">Active Cycle</span>
+      </div>
+      <div class="digest-body" id="digestBody" style="display: none;">
+        <div class="digest-info-box">
+          <div class="digest-info-row">
+            <span class="digest-info-lbl">Target User:</span>
+            <span class="digest-info-val" id="digestUserEmail">Sign in or set email</span>
+          </div>
+          <div class="digest-info-row">
+            <span class="digest-info-lbl">Current 15-Day Slab:</span>
+            <span class="digest-info-val" id="digestTimeSlab">--</span>
+          </div>
+          <div class="digest-info-row">
+            <span class="digest-info-lbl">Audited Activity:</span>
+            <span class="digest-info-val" id="digestRecordsCount">0 emails, 0 clicks</span>
+          </div>
+        </div>
+        <div class="digest-actions-row">
+          <button class="digest-btn-primary" id="btnSendDigestNow" type="button">📧 Send 15-Day Digest Now</button>
+          <button class="digest-btn-secondary" id="btnPreviewDigest" type="button">👁 Preview Email Report</button>
+        </div>
+        <div class="digest-status-msg" id="digestStatusMsg" style="display: none;"></div>
+      </div>
+    </div>
+
     <!-- Cloud Intelligence Settings (Optional) -->
     <div class="cloud-panel" id="cloudPanel">
       <div class="cloud-panel-header" id="cloudPanelHeader" role="button" tabindex="0" aria-expanded="false">
@@ -376,7 +413,7 @@
         <p class="cloud-panel-hint">Connect to SafeInbox FastAPI / Cloud Run backend for global IOC sync and threat
           intelligence. Raw email text is never transmitted.</p>
         <div class="cloud-input-row">
-          <input type="text" id="cloudBackendUrlInput" placeholder="http://localhost:8080 or Cloud Run URL"
+          <input type="text" id="cloudBackendUrlInput" placeholder="https://safeinbox-ai.onrender.com"
             spellcheck="false" autocomplete="off">
           <button id="btnConnectCloud" class="cloud-btn" type="button">Connect</button>
         </div>
@@ -432,8 +469,11 @@
           </div>
           <div class="auth-form-field">
             <label for="authSignInPassword" class="auth-label">Password</label>
-            <input type="password" id="authSignInPassword" class="auth-input" placeholder="••••••••" required
-              autocomplete="current-password">
+            <div class="auth-input-wrapper">
+              <input type="password" id="authSignInPassword" class="auth-input" placeholder="••••••••" required
+                autocomplete="current-password">
+              <button type="button" class="auth-pw-toggle" aria-label="Toggle password visibility" data-target="authSignInPassword">👁️</button>
+            </div>
           </div>
           <div class="auth-status-msg" id="authSignInStatus" style="display: none;"></div>
           <button type="submit" class="auth-submit-btn" id="btnSubmitSignIn">
@@ -457,14 +497,21 @@
               autocomplete="email">
           </div>
           <div class="auth-form-field">
-            <label for="authSignUpPassword" class="auth-label">Password (min 8 characters)</label>
-            <input type="password" id="authSignUpPassword" class="auth-input" placeholder="••••••••" minlength="8"
-              required autocomplete="new-password">
+            <label for="authSignUpPassword" class="auth-label">Password</label>
+            <div class="auth-input-wrapper">
+              <input type="password" id="authSignUpPassword" class="auth-input" placeholder="••••••••" minlength="10"
+                required autocomplete="new-password">
+              <button type="button" class="auth-pw-toggle" aria-label="Toggle password visibility" data-target="authSignUpPassword">👁️</button>
+            </div>
+            <div class="auth-password-hints">10+ characters, uppercase, lowercase, number &amp; symbol. Unique from common patterns.</div>
           </div>
           <div class="auth-form-field">
             <label for="authSignUpConfirmPassword" class="auth-label">Confirm Password</label>
-            <input type="password" id="authSignUpConfirmPassword" class="auth-input" placeholder="••••••••"
-              minlength="8" required autocomplete="new-password">
+            <div class="auth-input-wrapper">
+              <input type="password" id="authSignUpConfirmPassword" class="auth-input" placeholder="••••••••"
+                minlength="10" required autocomplete="new-password">
+              <button type="button" class="auth-pw-toggle" aria-label="Toggle password visibility" data-target="authSignUpConfirmPassword">👁️</button>
+            </div>
           </div>
           <div class="auth-status-msg" id="authSignUpStatus" style="display: none;"></div>
           <button type="submit" class="auth-submit-btn" id="btnSubmitSignUp">
@@ -474,6 +521,32 @@
             Already have an account? <a href="#" id="authLinkToSignIn">Sign In</a>
           </div>
         </form>
+
+        <!-- OTP Verification View in Side Panel -->
+        <div id="authOtpVerificationView" style="display: none; padding: 6px 0;">
+          <div id="authOtpHeading" style="font-size: 13px; font-weight: 700; color: #f8fafc; margin-bottom: 4px;">✉️ Verify Your Email</div>
+          <p id="authOtpPromptText" style="font-size: 11px; color: #94a3b8; line-height: 1.4; margin-bottom: 12px;">
+            Enter the 6-digit code sent to <strong id="authOtpTargetEmail" style="color: #60a5fa;"></strong> to complete registration.
+          </p>
+
+          <div style="background: rgba(15, 23, 42, 0.6); border: 1px solid #1e293b; border-radius: 8px; padding: 14px; text-align: center; margin-bottom: 10px;">
+            <input type="text" id="authOtpCodeInput" maxlength="6" inputmode="numeric" pattern="[0-9]*" placeholder="000000" autocomplete="one-time-code" style="font-family: 'Courier New', Courier, monospace; font-size: 24px; letter-spacing: 6px; text-align: center; padding: 8px 12px; width: 180px; background: #030712; border: 2px solid #059669; border-radius: 6px; color: #ffffff; outline: none; margin-bottom: 6px;" />
+            <div style="font-size: 11px; color: #94a3b8;">
+              ⏱️ Expires in: <span id="authOtpCountdown" style="font-weight: 700; color: #f59e0b;">10:00</span>
+            </div>
+          </div>
+
+          <div class="auth-status-msg" id="authOtpStatus" style="display: none; margin-bottom: 10px;"></div>
+
+          <button type="button" class="auth-submit-btn" id="btnSubmitAuthVerifyOtp" style="margin-bottom: 8px;">
+            <span id="authOtpSubmitText">Verify &amp; Create Account</span>
+          </button>
+
+          <div style="display: flex; justify-content: space-between; align-items: center; font-size: 11px; margin-top: 6px;">
+            <button type="button" id="btnAuthResendOtp" style="background: none; border: none; color: #38bdf8; cursor: pointer; padding: 2px 0;">🔄 Resend (<span id="authOtpResendCooldown">60s</span>)</button>
+            <button type="button" id="btnAuthBackToSignUp" style="background: none; border: none; color: #94a3b8; cursor: pointer; padding: 2px 0;">← Back</button>
+          </div>
+        </div>
       </div>
 
       <!-- Signed In View: Account Profile & Sign Out -->
@@ -489,11 +562,62 @@
             </div>
           </div>
         </div>
-        <p class="auth-profile-hint">You are signed in. Your extension authenticates with your cloud backend for threat
-          intelligence sync and analyst feedback.</p>
+        <div class="auth-security-policy-card" style="margin: 10px 0; padding: 8px 12px; background: rgba(59, 130, 246, 0.08); border-radius: 8px; font-size: 11px; line-height: 1.5;">
+          <div>🛡️ <strong>Weekly Device Security:</strong> Sign in required every 7 days.</div>
+          <div>🔄 <strong>Monthly Password Rotation:</strong> Update required every 30 days.</div>
+        </div>
+        <div class="auth-status-msg error" id="authPasswordExpiryNotice" style="display: none; margin-bottom: 10px;"></div>
+
+        <!-- Change Password Section -->
+        <details class="auth-change-password-details" id="authChangePasswordDetails" style="margin-bottom: 12px;">
+          <summary class="auth-change-password-summary" style="cursor: pointer; font-size: 12px; font-weight: 600; color: #2563eb; padding: 4px 0;">Change Account Password</summary>
+          <form class="auth-form" id="authChangePasswordForm" style="margin-top: 8px;">
+            <div class="auth-form-field">
+              <label for="authCurrentPassword" class="auth-label">Current Password</label>
+              <div class="auth-input-wrapper">
+                <input type="password" id="authCurrentPassword" class="auth-input" placeholder="••••••••" required autocomplete="current-password">
+                <button type="button" class="auth-pw-toggle" aria-label="Toggle password visibility" data-target="authCurrentPassword">👁️</button>
+              </div>
+            </div>
+            <div class="auth-form-field">
+              <label for="authNewPassword" class="auth-label">New Password</label>
+              <div class="auth-input-wrapper">
+                <input type="password" id="authNewPassword" class="auth-input" placeholder="••••••••" minlength="10" required autocomplete="new-password">
+                <button type="button" class="auth-pw-toggle" aria-label="Toggle password visibility" data-target="authNewPassword">👁️</button>
+              </div>
+              <div class="auth-password-hints">10+ characters, uppercase, lowercase, digit &amp; symbol. Cannot be similar to old password.</div>
+            </div>
+            <div class="auth-form-field">
+              <label for="authConfirmNewPassword" class="auth-label">Confirm New Password</label>
+              <div class="auth-input-wrapper">
+                <input type="password" id="authConfirmNewPassword" class="auth-input" placeholder="••••••••" minlength="10" required autocomplete="new-password">
+                <button type="button" class="auth-pw-toggle" aria-label="Toggle password visibility" data-target="authConfirmNewPassword">👁️</button>
+              </div>
+            </div>
+            <div class="auth-status-msg" id="authChangePasswordStatus" style="display: none;"></div>
+            <button type="submit" class="auth-submit-btn" id="btnSubmitChangePassword">
+              <span>Update Password</span>
+            </button>
+          </form>
+        </details>
+
+        <p class="auth-profile-hint">You are signed in. Your extension authenticates with your cloud backend for threat intelligence sync and analyst feedback.</p>
         <div class="auth-actions-row">
           <button class="auth-signout-btn" id="btnSubmitSignOut" type="button">Sign Out</button>
         </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- 15-Day Digest Preview Modal -->
+  <div class="digest-modal-backdrop" id="digestPreviewModal" style="display: none;">
+    <div class="digest-modal-card" role="dialog" aria-modal="true" aria-labelledby="digestPreviewTitle">
+      <div class="digest-modal-header">
+        <div class="digest-modal-title" id="digestPreviewTitle">15-Day Security Digest Report Preview</div>
+        <button class="auth-modal-close" id="digestPreviewClose" type="button" aria-label="Close dialog">&times;</button>
+      </div>
+      <div class="digest-preview-frame-container">
+        <iframe id="digestPreviewIframe" class="digest-preview-iframe" title="Digest Preview"></iframe>
       </div>
     </div>
   </div>

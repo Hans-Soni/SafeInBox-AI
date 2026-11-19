@@ -9,7 +9,7 @@ from starlette.middleware.base import BaseHTTPMiddleware, RequestResponseEndpoin
 
 from app.config import settings
 from app.database import init_db
-from app.routers import auth_router, email_router, feedback_router, health_router, url_router
+from app.routers import auth_router, email_router, feedback_router, health_router, url_router, digest_router
 
 
 class SecurityTransportMiddleware(BaseHTTPMiddleware):
@@ -73,8 +73,10 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
 app = FastAPI(
     title=settings.PROJECT_NAME,
     version=settings.VERSION,
-    description="Cloud Intelligence & Threat Scanning API for SafeInbox AI Browser Extension.",
-    lifespan=lifespan
+    description="Asynchronous cloud threat intelligence backend and 15-day security audit digest for SafeInbox AI.",
+    lifespan=lifespan,
+    docs_url="/docs",
+    redoc_url="/redoc"
 )
 
 # Security and HTTPS enforcement middleware
@@ -95,6 +97,7 @@ app.include_router(auth_router)
 app.include_router(url_router)
 app.include_router(email_router)
 app.include_router(feedback_router)
+app.include_router(digest_router)
 
 
 @app.get("/")
@@ -106,4 +109,3 @@ async def root() -> dict[str, str]:
         "status": "online",
         "docs_url": "/docs"
     }
-

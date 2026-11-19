@@ -1,23 +1,56 @@
 "use strict";
 
-importScripts("../utils/textParser.js");
-
 const MODEL_PATH = "models/email-threat.onnx";
 const VOCAB_PATH = "models/email-vocab.json";
 const MAX_LENGTH = 512;
 const MAX_EMAIL_CHUNKS = 8;
-let ort = null;
 let session = null;
 let sessionPromise = null;
 let modelError = "No trained email text model is installed.";
 let vocabularyPromise = null;
 
+function getResourceUrl(relativePath) {
+  if (typeof chrome !== "undefined" && chrome && chrome.runtime && typeof chrome.runtime.getURL === "function") {
+    try {
+      return chrome.runtime.getURL(relativePath);
+    } catch (_) {}
+  }
+  const cleanPath = String(relativePath || "").replace(/^\/+/, "");
+  if (typeof self !== "undefined" && self.location) {
+    if (self.location.origin && self.location.origin !== "null" && self.location.origin !== "undefined") {
+      return `${self.location.origin.replace(/\/+$/, "")}/${cleanPath}`;
+    }
+    if (self.location.href) {
+      try {
+        return new URL(cleanPath, self.location.href).href;
+      } catch (_) {}
+    }
+  }
+  return cleanPath;
+}
+
 try {
-  importScripts("../../vendor/ort.min.js");
-  ort = self.ort || null;
-  if (ort) {
-    ort.env.wasm.wasmPaths = chrome.runtime.getURL("vendor/");
-    ort.env.wasm.numThreads = 1;
+  try {
+    importScripts(getResourceUrl("src/utils/textParser.js"));
+  } catch (_) {
+    importScripts("../utils/textParser.js");
+  }
+} catch (e) {
+  // parser load error
+}
+
+try {
+  try {
+    importScripts(getResourceUrl("vendor/ort.min.js"));
+  } catch (_) {
+    importScripts("../../vendor/ort.min.js");
+  }
+  const activeOrt = (typeof self !== "undefined" && self.ort) || (typeof ort !== "undefined" ? ort : null);
+  if (activeOrt) {
+    if (typeof self !== "undefined" && !self.ort) self.ort = activeOrt;
+    activeOrt.env.wasm.wasmPaths = getResourceUrl("vendor/");
+    activeOrt.env.wasm.numThreads = 1;
+    activeOrt.env.wasm.proxy = false;
   }
 } catch (error) {
   modelError = `ONNX Runtime Web could not be loaded: ${error.message}`;
@@ -25,7 +58,7 @@ try {
 
 async function loadVocabulary() {
   if (!vocabularyPromise) {
-    vocabularyPromise = fetch(chrome.runtime.getURL(VOCAB_PATH)).then(async (response) => {
+    vocabularyPromise = fetch(getResourceUrl(VOCAB_PATH)).then(async (response) => {
       if (!response.ok) throw new Error(`Could not load ${VOCAB_PATH}.`);
       const file = await response.json();
       const vocabulary = file.vocab || file;
@@ -43,12 +76,16 @@ async function loadVocabulary() {
 }
 
 async function loadModel() {
-  if (!ort) return null;
+  const activeOrt = (typeof self !== "undefined" && self.ort) || (typeof ort !== "undefined" ? ort : null);
+  if (!activeOrt) return null;
   if (!sessionPromise) {
     sessionPromise = (async () => {
-      const response = await fetch(chrome.runtime.getURL(MODEL_PATH));
+      const modelUrl = getResourceUrl(MODEL_PATH);
+      const response = await fetch(modelUrl);
       if (!response.ok) throw new Error(`No trained model found at ${MODEL_PATH}.`);
-      const created = await ort.InferenceSession.create(chrome.runtime.getURL(MODEL_PATH), {
+      const modelBuffer = typeof response.arrayBuffer === "function" ? await response.arrayBuffer() : modelUrl;
+      const sessionInput = modelBuffer instanceof ArrayBuffer ? new Uint8Array(modelBuffer) : modelBuffer;
+      const created = await activeOrt.InferenceSession.create(sessionInput, {
         executionProviders: ["wasm"],
         graphOptimizationLevel: "all"
       });
@@ -67,11 +104,13 @@ function findInputName(names, pattern, fallback) {
 }
 
 function makeTensor(values, name) {
+  const activeOrt = (typeof self !== "undefined" && self.ort) || (typeof ort !== "undefined" ? ort : null);
+  if (!activeOrt) throw new Error("ONNX Runtime Web is not available to create tensors.");
   const metadata = session && session.inputMetadata && session.inputMetadata[name];
   if (metadata && metadata.type === "int64") {
-    return new ort.Tensor("int64", BigInt64Array.from(values, (value) => BigInt(value)), [1, values.length]);
+    return new activeOrt.Tensor("int64", BigInt64Array.from(values, (value) => BigInt(value)), [1, values.length]);
   }
-  return new ort.Tensor("int32", values, [1, values.length]);
+  return new activeOrt.Tensor("int32", values, [1, values.length]);
 }
 
 function probabilityFromOutput(output, outputType) {

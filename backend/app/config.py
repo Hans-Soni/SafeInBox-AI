@@ -14,6 +14,11 @@ class Settings(BaseSettings):
     # Database: Default to asynchronous SQLite for local/testing, or PostgreSQL on Cloud
     DATABASE_URL: str = "sqlite+aiosqlite:///./safeinbox.db"
 
+    # Neon Cloud Integration (summer-union)
+    NEON_DATA_API_URL: str | None = None
+    NEON_HOST: str | None = None
+    NEON_DATABASE: str | None = None
+
     # CORS configuration - Allow all for extensions (chrome-extension://*) and local dev
     CORS_ORIGINS: list[str] = ["*"]
 
@@ -34,8 +39,20 @@ class Settings(BaseSettings):
     # Optional Google Web Risk / Safe Browsing API integration
     WEB_RISK_API_KEY: str | None = None
 
+    # 15-Day Security Digest & SMTP / Google Apps Script Settings
+    APPS_SCRIPT_URL: str | None = None
+    APPS_SCRIPT_SECRET: str | None = "safeinbox_secret_key"
+    SMTP_HOST: str | None = None
+    SMTP_PORT: int = 587
+    SMTP_USER: str | None = None
+    SMTP_PASSWORD: str | None = None
+    SMTP_FROM_EMAIL: str = "security-digest@safeinbox.ai"
+    SMTP_FROM_NAME: str = "SafeInbox AI Threat Defense"
+    SMTP_TLS: bool = True
+    DIGEST_INTERVAL_DAYS: int = 15
+
     model_config = SettingsConfigDict(
-        env_file=".env",
+        env_file=(".env", "backend/.env"),
         env_file_encoding="utf-8",
         extra="ignore"
     )
@@ -72,4 +89,3 @@ class Settings(BaseSettings):
 
 
 settings = Settings()
-

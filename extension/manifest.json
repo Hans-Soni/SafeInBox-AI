@@ -11,7 +11,8 @@
     "offscreen",
     "sidePanel",
     "contextMenus",
-    "clipboardWrite"
+    "clipboardWrite",
+    "alarms"
   ],
   "host_permissions": ["<all_urls>"],
   "action": {
@@ -61,6 +62,40 @@
       ],
       "css": ["src/content/webmailScanner.css"],
       "run_at": "document_idle"
+    }
+  ],
+  "web_accessible_resources": [
+    {
+      "resources": [
+        "vendor/*",
+        "models/*",
+        "src/ml/*",
+        "src/ml/workers/*",
+        "src/url/*",
+        "src/utils/*",
+        "offscreen.html",
+        "vendor/ort.all.min.js",
+        "vendor/ort.min.js",
+        "vendor/ort.wasm",
+        "vendor/ort-wasm-simd.wasm",
+        "vendor/ort-wasm-simd-threaded.wasm",
+        "vendor/ort-wasm-simd-threaded.jsep.wasm",
+        "vendor/ort-wasm-simd-threaded.mjs",
+        "vendor/ort-wasm-simd-threaded.jsep.mjs",
+        "src/workers/urlInferenceWorker.js",
+        "src/workers/textMlWorker.js",
+        "src/workers/textWorkerHost.js",
+        "src/workers/textWorkerHost.html",
+        "src/ml/workers/urlInferenceWorker.js",
+        "src/ml/textMlWorker.js",
+        "src/ml/textWorkerHost.js",
+        "src/url/urlThreatParser.js",
+        "src/utils/textParser.js",
+        "models/url-threat.onnx",
+        "models/email-threat.onnx",
+        "models/email-vocab.json"
+      ],
+      "matches": ["<all_urls>"]
     }
   ]
 }

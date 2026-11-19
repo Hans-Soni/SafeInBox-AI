@@ -20,6 +20,12 @@ const SUPPORTED_WEBMAIL_HOSTS = new Set([
   "outlook.office.com",
   "mail.yahoo.com"
 ]);
+const DIGEST_ALARM_NAME = "safeinbox_15day_digest_check";
+const DIGEST_INTERVAL_MS = 15 * 24 * 60 * 60 * 1000; // 15 days in milliseconds
+const DIGEST_RECORDS_KEY = "safeinbox_15day_email_records";
+const DIGEST_LAST_SENT_KEY = "safeinbox_15day_last_dispatch";
+const DIGEST_HISTORY_KEY = "safeinbox_15day_history";
+
 const pendingInferences = new Map();
 const inFlightScans = new Map();
 const inFlightEmailScans = new Map();
@@ -41,10 +47,51 @@ function configureSidePanelBehavior() {
   });
 }
 
+async function purgeStaleHeuristicCaches() {
+  if (typeof chrome === "undefined" || !chrome.storage || !chrome.storage.local) return;
+  try {
+    const items = await chrome.storage.local.get(null);
+    const keysToRemove = Object.keys(items).filter((key) => {
+      if (!key.startsWith(CACHE_PREFIX) && !key.startsWith(EMAIL_CACHE_PREFIX)) return false;
+      const entry = items[key];
+      return entry && entry.result && (!entry.result.model_available && !entry.result.modelAvailable);
+    });
+    if (keysToRemove.length) {
+      await chrome.storage.local.remove(keysToRemove);
+    }
+  } catch {}
+}
+
 configureSidePanelBehavior();
+setupDigestAlarm();
+purgeStaleHeuristicCaches();
+flushAllPendingCloudData().catch(() => {});
+
+// Ensure default backend configuration exists in storage
+if (typeof chrome !== "undefined" && chrome.storage && chrome.storage.local && typeof chrome.storage.local.get === "function") {
+  chrome.storage.local.get(["cloudBackendUrl", "cloudBackendEnabled"], (stored) => {
+    if (!stored || !stored.cloudBackendUrl) {
+      if (typeof chrome.storage.local.set === "function") {
+        chrome.storage.local.set({
+          cloudBackendUrl: "https://safeinbox-ai.onrender.com",
+          cloudBackendEnabled: true
+        });
+      }
+    }
+  });
+}
 
 chrome.runtime.onInstalled.addListener((details) => {
   configureSidePanelBehavior();
+  setupDigestAlarm();
+  purgeStaleHeuristicCaches();
+  flushAllPendingCloudData().catch(() => {});
+  if (typeof chrome !== "undefined" && chrome.storage && chrome.storage.local) {
+    chrome.storage.local.set({
+      cloudBackendUrl: "https://safeinbox-ai.onrender.com",
+      cloudBackendEnabled: true
+    });
+  }
   if (details && details.reason === "install") {
     if (typeof chrome !== "undefined" && chrome.tabs && chrome.tabs.create) {
       chrome.tabs.create({ url: chrome.runtime.getURL("welcome.html") });
@@ -195,10 +242,71 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     return true;
   }
 
+  if (message && message.type === "URL_MODEL_STATUS") {
+    modelAvailable = Boolean(message.modelAvailable);
+    return false;
+  }
+
   if (message && message.type === "TEST_CLOUD_BACKEND") {
     testCloudBackend(message.url).then(
       (status) => sendResponse({ ok: true, status }),
       (error) => sendResponse({ ok: false, error: error.message || "Failed to reach cloud backend." })
+    );
+    return true;
+  }
+
+  if (message && message.type === "GET_15DAY_DIGEST_DATA") {
+    get15DayDigestData().then(
+      (data) => sendResponse({ ok: true, data }),
+      (error) => sendResponse({ ok: false, error: error.message || "Failed to load 15-day digest data." })
+    );
+    return true;
+  }
+
+  if (message && message.type === "DISPATCH_15DAY_DIGEST_NOW") {
+    dispatch15DayDigestNow({ force: true, targetEmail: message.targetEmail }).then(
+      (result) => sendResponse({ ok: true, result }),
+      (error) => sendResponse({ ok: false, error: error.message || "Failed to dispatch 15-day digest." })
+    );
+    return true;
+  }
+
+  if (message && message.type === "PREVIEW_15DAY_DIGEST") {
+    preview15DayDigest(message.targetEmail).then(
+      (result) => sendResponse({ ok: true, result }),
+      (error) => sendResponse({ ok: false, error: error.message || "Failed to generate digest preview." })
+    );
+    return true;
+  }
+
+  if (message && message.type === "RECORD_WEBMAIL_CLICK") {
+    syncClickWithBackend(message.clickRecord).then(
+      (saved) => sendResponse({ ok: true, saved }),
+      (err) => sendResponse({ ok: false, error: err.message })
+    );
+    return true;
+  }
+
+  if (message && message.type === "RECORD_FEEDBACK") {
+    syncFeedbackWithBackend(message.feedback).then(
+      (saved) => sendResponse({ ok: true, saved }),
+      (err) => sendResponse({ ok: false, error: err.message })
+    );
+    return true;
+  }
+
+  if (message && message.type === "RECORD_EMAIL_AUDIT") {
+    syncAuditWithBackend(message.auditRecord).then(
+      (saved) => sendResponse({ ok: true, saved }),
+      (err) => sendResponse({ ok: false, error: err.message })
+    );
+    return true;
+  }
+
+  if (message && message.type === "FLUSH_PENDING_SYNC") {
+    flushAllPendingCloudData().then(
+      () => sendResponse({ ok: true }),
+      (err) => sendResponse({ ok: false, error: err.message })
     );
     return true;
   }
@@ -228,6 +336,9 @@ async function testCloudBackend(rawUrl) {
     if (timeoutId) clearTimeout(timeoutId);
     if (!resp.ok) throw new Error(`Server returned HTTP ${resp.status}`);
     const data = await resp.json();
+    if (resp.ok) {
+      flushAllPendingCloudData(baseUrl).catch(() => {});
+    }
     return {
       online: true,
       latencyMs: Date.now() - start,
@@ -238,6 +349,305 @@ async function testCloudBackend(rawUrl) {
     if (timeoutId) clearTimeout(timeoutId);
     throw new Error(`Could not connect to ${baseUrl}: ${err.message}`);
   }
+}
+
+// =============================================================================
+// Cloud & Local Database Live Action Synchronization (Clicks, Feedback, Audits)
+// =============================================================================
+const PENDING_CLICKS_KEY = "safeinbox_pending_clicks";
+const PENDING_FEEDBACK_KEY = "safeinbox_pending_feedback";
+const PENDING_AUDITS_KEY = "safeinbox_pending_audits";
+const MAX_PENDING_QUEUE = 500;
+const DEFAULT_CLOUD_BACKEND_URL = "https://safeinbox-ai.onrender.com";
+
+async function getEffectiveBackendUrl() {
+  if (typeof chrome === "undefined" || !chrome.storage || !chrome.storage.local) {
+    return DEFAULT_CLOUD_BACKEND_URL;
+  }
+  return new Promise((resolve) => {
+    try {
+      chrome.storage.local.get(["cloudBackendUrl", "cloudBackendEnabled", "cloud_backend_url"], (stored) => {
+        if (chrome.runtime.lastError) {
+          resolve(DEFAULT_CLOUD_BACKEND_URL);
+          return;
+        }
+        let url = "";
+        if (stored && stored.cloudBackendUrl && (stored.cloudBackendEnabled || stored.cloudBackendEnabled === undefined)) {
+          url = String(stored.cloudBackendUrl).trim().replace(/\/+$/, "");
+        } else if (stored && stored.cloud_backend_url) {
+          url = String(stored.cloud_backend_url).trim().replace(/\/+$/, "");
+        } else {
+          url = DEFAULT_CLOUD_BACKEND_URL;
+        }
+
+        const isLocalhost = /^https?:\/\/(localhost|127\.0\.0\.1)(:\d+)?$/i.test(url);
+        if (!isLocalhost && !url.startsWith("https://")) {
+          // Protocol enforcement: Remote cloud backend must use HTTPS
+          resolve("");
+          return;
+        }
+        resolve(url);
+      });
+    } catch {
+      resolve(DEFAULT_CLOUD_BACKEND_URL);
+    }
+  });
+}
+
+async function getAuthHeader() {
+  if (typeof chrome === "undefined" || !chrome.storage || !chrome.storage.local) return {};
+  return new Promise((resolve) => {
+    try {
+      chrome.storage.local.get(["safeinbox_auth"], (res) => {
+        const auth = res && res.safeinbox_auth;
+        if (auth && auth.token) {
+          resolve({ "Authorization": `Bearer ${auth.token}` });
+        } else {
+          resolve({});
+        }
+      });
+    } catch {
+      resolve({});
+    }
+  });
+}
+
+async function syncClickWithBackend(clickRecord) {
+  if (!clickRecord || !clickRecord.url) return false;
+  const backendUrl = await getEffectiveBackendUrl();
+  if (!backendUrl) return false;
+
+  const authHeaders = await getAuthHeader();
+  let userEmail = null;
+  try {
+    const sessionRes = await new Promise((r) => {
+      chrome.storage.local.get(["safeinbox_auth", "safeinbox_user_session"], r);
+    });
+    userEmail = (sessionRes && sessionRes.safeinbox_auth && sessionRes.safeinbox_auth.email) ||
+                (sessionRes && sessionRes.safeinbox_user_session && sessionRes.safeinbox_user_session.email) ||
+                null;
+  } catch {}
+
+  const payload = {
+    url: clickRecord.url,
+    defanged_url: clickRecord.defanged || String(clickRecord.url).replace(/\./g, "[.]"),
+    email_subject: clickRecord.email_subject || null,
+    sender: clickRecord.sender || null,
+    risk_score: typeof clickRecord.risk_score === "number" ? clickRecord.risk_score : 0,
+    risk_level: String(clickRecord.risk_level || "AUDITED"),
+    proceeded: clickRecord.proceeded !== false,
+    source: String(clickRecord.source || "email_body_link"),
+    user_email: userEmail
+  };
+
+  if (typeof fetch !== "function") {
+    await queuePendingCloudItem(PENDING_CLICKS_KEY, payload);
+    return false;
+  }
+
+  try {
+    const controller = typeof AbortController === "function" ? new AbortController() : null;
+    const timeoutId = controller ? setTimeout(() => controller.abort(), 2500) : null;
+    const resp = await fetch(`${backendUrl}/api/v1/scan/click`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json", ...authHeaders },
+      body: JSON.stringify(payload),
+      signal: controller ? controller.signal : undefined
+    });
+    if (timeoutId) clearTimeout(timeoutId);
+
+    if (resp.ok) {
+      flushAllPendingCloudData(backendUrl).catch(() => {});
+      return true;
+    } else {
+      await queuePendingCloudItem(PENDING_CLICKS_KEY, payload);
+      return false;
+    }
+  } catch (err) {
+    await queuePendingCloudItem(PENDING_CLICKS_KEY, payload);
+    return false;
+  }
+}
+
+async function syncFeedbackWithBackend(feedback) {
+  if (!feedback || !feedback.target) return false;
+  const backendUrl = await getEffectiveBackendUrl();
+  if (!backendUrl) return false;
+
+  const authHeaders = await getAuthHeader();
+  const payload = {
+    target: feedback.target,
+    target_type: feedback.target_type === "EMAIL" ? "TEXT" : (feedback.target_type || "URL"),
+    is_safe: Boolean(feedback.is_safe),
+    source: feedback.source || "webmail_banner"
+  };
+
+  if (typeof fetch !== "function") {
+    await queuePendingCloudItem(PENDING_FEEDBACK_KEY, payload);
+    return false;
+  }
+
+  try {
+    const controller = typeof AbortController === "function" ? new AbortController() : null;
+    const timeoutId = controller ? setTimeout(() => controller.abort(), 2500) : null;
+    const resp = await fetch(`${backendUrl}/api/v1/feedback`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json", ...authHeaders },
+      body: JSON.stringify(payload),
+      signal: controller ? controller.signal : undefined
+    });
+    if (timeoutId) clearTimeout(timeoutId);
+
+    if (resp.ok) {
+      flushAllPendingCloudData(backendUrl).catch(() => {});
+      return true;
+    } else {
+      await queuePendingCloudItem(PENDING_FEEDBACK_KEY, payload);
+      return false;
+    }
+  } catch (err) {
+    await queuePendingCloudItem(PENDING_FEEDBACK_KEY, payload);
+    return false;
+  }
+}
+
+async function syncAuditWithBackend(auditRecord) {
+  if (!auditRecord) return false;
+  const backendUrl = await getEffectiveBackendUrl();
+  if (!backendUrl || typeof fetch !== "function") return false;
+
+  const authHeaders = await getAuthHeader();
+  const rawId = `${auditRecord.sender || ""}|${auditRecord.subject || ""}|${Date.now()}`;
+  const contentHash = await hashUrl(rawId);
+
+  const payload = {
+    scan_type: "EMAIL",
+    content_hash: contentHash,
+    risk_score: Math.round(auditRecord.risk_score || 0),
+    risk_level: String(auditRecord.risk_level || "SAFE"),
+    threat_vectors: Array.isArray(auditRecord.threat_vectors) ? auditRecord.threat_vectors : []
+  };
+
+  try {
+    const controller = typeof AbortController === "function" ? new AbortController() : null;
+    const timeoutId = controller ? setTimeout(() => controller.abort(), 2500) : null;
+    const resp = await fetch(`${backendUrl}/api/v1/scan/audit`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json", ...authHeaders },
+      body: JSON.stringify(payload),
+      signal: controller ? controller.signal : undefined
+    });
+    if (timeoutId) clearTimeout(timeoutId);
+
+    if (resp.ok) {
+      flushAllPendingCloudData(backendUrl).catch(() => {});
+      return true;
+    } else {
+      await queuePendingCloudItem(PENDING_AUDITS_KEY, payload);
+      return false;
+    }
+  } catch (err) {
+    await queuePendingCloudItem(PENDING_AUDITS_KEY, payload);
+    return false;
+  }
+}
+
+async function queuePendingCloudItem(storageKey, item) {
+  if (typeof chrome === "undefined" || !chrome.storage || !chrome.storage.local) return;
+  return new Promise((resolve) => {
+    try {
+      chrome.storage.local.get([storageKey], (res) => {
+        if (chrome.runtime.lastError) {
+          resolve();
+          return;
+        }
+        const list = Array.isArray(res && res[storageKey]) ? res[storageKey] : [];
+        list.push(item);
+        const trimmed = list.slice(-MAX_PENDING_QUEUE);
+        chrome.storage.local.set({ [storageKey]: trimmed }, () => resolve());
+      });
+    } catch {
+      resolve();
+    }
+  });
+}
+
+async function flushAllPendingCloudData(targetBackendUrl = null) {
+  const backendUrl = targetBackendUrl || await getEffectiveBackendUrl();
+  if (!backendUrl || typeof fetch !== "function") return;
+  const authHeaders = await getAuthHeader();
+
+  // Flush pending clicks
+  try {
+    const clickRes = await new Promise((r) => chrome.storage.local.get([PENDING_CLICKS_KEY], r));
+    const pendingClicks = Array.isArray(clickRes && clickRes[PENDING_CLICKS_KEY]) ? clickRes[PENDING_CLICKS_KEY] : [];
+    if (pendingClicks.length > 0) {
+      const remainingClicks = [];
+      for (let i = 0; i < pendingClicks.length; i++) {
+        const item = pendingClicks[i];
+        try {
+          const resp = await fetch(`${backendUrl}/api/v1/scan/click`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json", ...authHeaders },
+            body: JSON.stringify(item)
+          });
+          if (!resp.ok) remainingClicks.push(item);
+        } catch {
+          remainingClicks.push(...pendingClicks.slice(i));
+          break;
+        }
+      }
+      await new Promise((r) => chrome.storage.local.set({ [PENDING_CLICKS_KEY]: remainingClicks }, r));
+    }
+  } catch {}
+
+  // Flush pending feedback
+  try {
+    const fbRes = await new Promise((r) => chrome.storage.local.get([PENDING_FEEDBACK_KEY], r));
+    const pendingFb = Array.isArray(fbRes && fbRes[PENDING_FEEDBACK_KEY]) ? fbRes[PENDING_FEEDBACK_KEY] : [];
+    if (pendingFb.length > 0) {
+      const remainingFb = [];
+      for (let i = 0; i < pendingFb.length; i++) {
+        const item = pendingFb[i];
+        try {
+          const resp = await fetch(`${backendUrl}/api/v1/feedback`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json", ...authHeaders },
+            body: JSON.stringify(item)
+          });
+          if (!resp.ok) remainingFb.push(item);
+        } catch {
+          remainingFb.push(...pendingFb.slice(i));
+          break;
+        }
+      }
+      await new Promise((r) => chrome.storage.local.set({ [PENDING_FEEDBACK_KEY]: remainingFb }, r));
+    }
+  } catch {}
+
+  // Flush pending audits
+  try {
+    const auditRes = await new Promise((r) => chrome.storage.local.get([PENDING_AUDITS_KEY], r));
+    const pendingAudits = Array.isArray(auditRes && auditRes[PENDING_AUDITS_KEY]) ? auditRes[PENDING_AUDITS_KEY] : [];
+    if (pendingAudits.length > 0) {
+      const remainingAudits = [];
+      for (let i = 0; i < pendingAudits.length; i++) {
+        const item = pendingAudits[i];
+        try {
+          const resp = await fetch(`${backendUrl}/api/v1/scan/audit`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json", ...authHeaders },
+            body: JSON.stringify(item)
+          });
+          if (!resp.ok) remainingAudits.push(item);
+        } catch {
+          remainingAudits.push(...pendingAudits.slice(i));
+          break;
+        }
+      }
+      await new Promise((r) => chrome.storage.local.set({ [PENDING_AUDITS_KEY]: remainingAudits }, r));
+    }
+  } catch {}
 }
 
 function isSupportedWebmailUrl(value) {
@@ -460,17 +870,42 @@ async function writeCachedResult(key, result) {
   if (removeKeys.length) await chrome.storage.local.remove(removeKeys);
 }
 
-function requestInference(parsed) {
-  if (!inferencePort) return Promise.resolve(null);
-  const requestId = `url-${Date.now()}-${++nextRequestId}`;
-  return new Promise((resolve, reject) => {
-    const timeout = setTimeout(() => {
-      pendingInferences.delete(requestId);
-      resolve(null);
-    }, MODEL_RESPONSE_TIMEOUT_MS);
-    pendingInferences.set(requestId, { resolve, reject, timeout });
-    inferencePort.postMessage({ type: "INFER_URL", requestId, parsed });
-  });
+async function requestInference(parsed) {
+  if (inferencePort && inferenceWorkerReady) {
+    const requestId = `url-${Date.now()}-${++nextRequestId}`;
+    return new Promise((resolve, reject) => {
+      const timeout = setTimeout(() => {
+        pendingInferences.delete(requestId);
+        resolve(null);
+      }, MODEL_RESPONSE_TIMEOUT_MS);
+      pendingInferences.set(requestId, { resolve, reject, timeout });
+      inferencePort.postMessage({ type: "INFER_URL", requestId, parsed });
+    });
+  }
+
+  // Use offscreen document host when sidepanel port is not connected
+  try {
+    await ensureTextInferenceDocument();
+    const requestId = `url-offscreen-${Date.now()}-${++nextRequestId}`;
+    let timeoutId = null;
+    const timeoutPromise = new Promise((resolve) => {
+      timeoutId = setTimeout(() => resolve(null), MODEL_RESPONSE_TIMEOUT_MS);
+    });
+    const responsePromise = chrome.runtime.sendMessage({
+      type: "RUN_URL_INFERENCE",
+      requestId,
+      parsed
+    });
+    const resp = await Promise.race([responsePromise, timeoutPromise]);
+    if (timeoutId) clearTimeout(timeoutId);
+    if (resp && resp.ok && resp.result) {
+      modelAvailable = true;
+      return resp.result;
+    }
+  } catch (err) {
+    console.warn("Offscreen URL inference attempt:", err.message);
+  }
+  return null;
 }
 
 async function analyzeAndRespond(inputUrl) {
@@ -509,10 +944,9 @@ async function analyzeAndRespond(inputUrl) {
 
     // Optional Cloud Intelligence check if configured and enabled
     try {
-      if (typeof chrome !== "undefined" && chrome.storage && chrome.storage.local && typeof fetch === "function") {
-        const stored = await chrome.storage.local.get(["cloudBackendUrl", "cloudBackendEnabled", "safeinbox_auth"]);
-        if (stored && stored.cloudBackendEnabled && typeof stored.cloudBackendUrl === "string" && stored.cloudBackendUrl.trim()) {
-          const cloudUrl = stored.cloudBackendUrl.trim().replace(/\/+$/, "");
+      if (typeof chrome !== "undefined" && typeof fetch === "function") {
+        const cloudUrl = await getEffectiveBackendUrl();
+        if (cloudUrl) {
           const isLocalhost = /^https?:\/\/(localhost|127\.0\.0\.1)(:\d+)?$/i.test(cloudUrl);
           if (!cloudUrl.startsWith("https://") && !isLocalhost) {
             // Reject non-HTTPS remote URL to prevent unencrypted traffic over the internet
@@ -520,8 +954,10 @@ async function analyzeAndRespond(inputUrl) {
           }
           const controller = typeof AbortController === "function" ? new AbortController() : null;
           const timeoutId = controller ? setTimeout(() => controller.abort(), 2500) : null;
-          const fetchHeaders = { "Content-Type": "application/json" };
-          if (stored.safeinbox_auth && stored.safeinbox_auth.token) {
+          const stored = await chrome.storage.local.get(["safeinbox_auth"]);
+          const authHeaders = await getAuthHeader();
+          const fetchHeaders = { "Content-Type": "application/json", ...authHeaders };
+          if (stored && stored.safeinbox_auth && stored.safeinbox_auth.token) {
             fetchHeaders["Authorization"] = `Bearer ${stored.safeinbox_auth.token}`;
           }
           const resp = await fetch(`${cloudUrl}/api/v1/scan/url`, {
@@ -570,4 +1006,382 @@ async function analyzeAndRespond(inputUrl) {
   } finally {
     inFlightScans.delete(hash);
   }
+}
+
+// =============================================================================
+// 15-Day Security Digest Delivery & Scheduling System
+// =============================================================================
+function setupDigestAlarm() {
+  if (typeof chrome !== "undefined" && chrome.alarms) {
+    chrome.alarms.get(DIGEST_ALARM_NAME, (alarm) => {
+      if (!alarm) {
+        chrome.alarms.create(DIGEST_ALARM_NAME, { periodInMinutes: 360 }); // Check every 6 hours
+      }
+    });
+  }
+}
+
+if (typeof chrome !== "undefined" && chrome.alarms && chrome.alarms.onAlarm) {
+  chrome.alarms.onAlarm.addListener((alarm) => {
+    if (alarm && alarm.name === DIGEST_ALARM_NAME) {
+      dispatch15DayDigestNow({ force: false, isAutomatic: true }).catch((err) => {
+        console.warn("SafeInbox automated 15-day digest dispatch check:", err);
+      });
+    }
+  });
+}
+
+function escapeHtmlDigest(str) {
+  return String(str ?? "")
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;")
+    .replace(/'/g, "&#39;");
+}
+
+function generateLocalDigestHtml(userEmail, userName, periodStart, periodEnd, records) {
+  const safeEmail = escapeHtmlDigest(userEmail || "user@safeinbox.local");
+  const safeName = escapeHtmlDigest(userName || "SafeInbox User");
+  const totalEmails = records.length;
+  const threats = records.filter(r => (r.composite_risk >= 35) || ["HIGH", "CRITICAL", "MEDIUM"].includes(r.risk_level));
+  const threatCount = threats.length;
+  const safeCount = totalEmails - threatCount;
+  const totalClicks = records.reduce((acc, r) => acc + (Array.isArray(r.clicked_urls) ? r.clicked_urls.length : 0), 0);
+
+  let cardsHtml = "";
+  if (records.length === 0) {
+    cardsHtml = `
+      <div style="background:#0f172a;border:1px solid #1e293b;border-radius:10px;padding:24px;text-align:center;color:#94a3b8;font-size:14px;">
+        No webmail scan or click activity recorded during this 15-day time-slab.
+      </div>
+    `;
+  } else {
+    records.forEach((rec, idx) => {
+      const isThreat = (rec.composite_risk >= 35) || ["HIGH", "CRITICAL", "MEDIUM"].includes(rec.risk_level);
+      const badgeColor = rec.composite_risk >= 60 ? "#ef4444" : (rec.composite_risk >= 35 ? "#f59e0b" : "#10b981");
+      const badgeBg = rec.composite_risk >= 60 ? "#450a0a" : (rec.composite_risk >= 35 ? "#451a03" : "#064e3b");
+
+      let clicksHtml = "";
+      if (Array.isArray(rec.clicked_urls) && rec.clicked_urls.length > 0) {
+        let items = "";
+        rec.clicked_urls.forEach(c => {
+          const cThreat = (c.risk_score >= 35) || ["SUSPICIOUS", "MALICIOUS", "THREAT", "HIGH", "CRITICAL"].includes(c.risk_level);
+          const cColor = cThreat ? "#ef4444" : "#10b981";
+          const cDefanged = c.defanged || String(c.url || "").replace(/\./g, "[.]");
+          items += `
+            <div style="background:#090d16;border:1px solid #1e293b;border-radius:6px;padding:8px 12px;margin-top:6px;font-size:12px;display:flex;justify-content:space-between;align-items:center;">
+              <span style="font-family:monospace;color:#38bdf8;word-break:break-all;">${escapeHtmlDigest(cDefanged)}</span>
+              <span style="color:${cColor};font-weight:bold;margin-left:10px;white-space:nowrap;">Risk: ${Math.round(c.risk_score || 0)}/100</span>
+            </div>
+          `;
+        });
+        clicksHtml = `
+          <div style="margin-top:12px;padding-top:10px;border-top:1px dashed #334155;">
+            <div style="font-size:12px;font-weight:bold;color:#f8fafc;margin-bottom:4px;">
+              🔗 URL Clicks in this email (${rec.clicked_urls.length}):
+            </div>
+            ${items}
+          </div>
+        `;
+      } else {
+        clicksHtml = `
+          <div style="margin-top:10px;font-size:12px;color:#64748b;font-style:italic;">
+            No links were clicked in this email.
+          </div>
+        `;
+      }
+
+      let vectorsBadge = "";
+      if (Array.isArray(rec.threat_vectors) && rec.threat_vectors.length > 0) {
+        vectorsBadge = `
+          <div style="margin-top:8px;">
+            <span style="font-size:11px;color:#cbd5e1;">Vectors: </span>
+            ${rec.threat_vectors.map(v => `<span style="background:#1e293b;color:#fca5a5;padding:2px 6px;border-radius:4px;font-size:11px;margin-right:4px;">${escapeHtmlDigest(v)}</span>`).join(" ")}
+          </div>
+        `;
+      }
+
+      cardsHtml += `
+        <div style="background:#0f172a;border:1px solid ${isThreat ? '#991b1b' : '#1e293b'};border-radius:10px;padding:18px;margin-bottom:16px;">
+          <div style="display:flex;justify-content:space-between;align-items:flex-start;border-bottom:1px solid #1e293b;padding-bottom:10px;margin-bottom:10px;">
+            <div>
+              <span style="font-size:15px;font-weight:bold;color:#f8fafc;">#${idx + 1}. ${escapeHtmlDigest(rec.subject || '(No Subject)')}</span>
+            </div>
+            <span style="background:${badgeBg};color:${badgeColor};border:1px solid ${badgeColor};padding:3px 10px;border-radius:12px;font-size:12px;font-weight:bold;white-space:nowrap;">
+              ML Score: ${Math.round(rec.composite_risk || 0)}/100 (${escapeHtmlDigest(rec.risk_level || 'SAFE')})
+            </span>
+          </div>
+          <table style="width:100%;font-size:13px;color:#cbd5e1;border-collapse:collapse;margin-bottom:8px;">
+            <tr>
+              <td style="padding:3px 0;width:110px;color:#94a3b8;font-weight:600;">Sender:</td>
+              <td style="padding:3px 0;color:#f1f5f9;font-weight:500;">${escapeHtmlDigest(rec.sender || 'Unknown')}</td>
+            </tr>
+            <tr>
+              <td style="padding:3px 0;color:#94a3b8;font-weight:600;">Receiver:</td>
+              <td style="padding:3px 0;color:#f1f5f9;font-weight:500;">${escapeHtmlDigest(rec.receiver || 'Current User')}</td>
+            </tr>
+            <tr>
+              <td style="padding:3px 0;color:#94a3b8;font-weight:600;">Time-Slab:</td>
+              <td style="padding:3px 0;color:#94a3b8;">${escapeHtmlDigest(rec.time_slab || rec.date_iso || 'Recorded')}</td>
+            </tr>
+            <tr>
+              <td style="padding:3px 0;color:#94a3b8;font-weight:600;">ML Breakdown:</td>
+              <td style="padding:3px 0;color:#94a3b8;">Text Threat: <strong style="color:#f8fafc;">${Math.round(rec.text_threat_score || 0)}%</strong> | URL Threat: <strong style="color:#f8fafc;">${Math.round(rec.url_threat_score || 0)}%</strong></td>
+            </tr>
+          </table>
+          ${vectorsBadge}
+          ${clicksHtml}
+        </div>
+      `;
+    });
+  }
+
+  return `<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>SafeInbox AI: 15-Day Security Audit Digest</title>
+</head>
+<body style="margin:0;padding:0;background:#030712;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;color:#f8fafc;">
+  <table role="presentation" width="100%" cellspacing="0" cellpadding="0" style="background:#030712;padding:24px 0;">
+    <tr>
+      <td align="center">
+        <table role="presentation" width="640" cellspacing="0" cellpadding="0" style="max-width:640px;width:100%;background:#090d16;border:1px solid #1e293b;border-radius:12px;overflow:hidden;">
+          <tr>
+            <td style="background:linear-gradient(135deg, #0284c7 0%, #0369a1 50%, #0f172a 100%);padding:28px 24px;text-align:left;">
+              <div style="display:inline-block;background:rgba(255,255,255,0.15);padding:4px 10px;border-radius:20px;font-size:12px;font-weight:bold;color:#e0f2fe;margin-bottom:8px;">
+                🛡️ 15-Day Security & Threat Audit
+              </div>
+              <h1 style="margin:0;font-size:22px;color:#ffffff;font-weight:800;letter-spacing:-0.5px;">
+                SafeInbox AI Security Digest
+              </h1>
+              <p style="margin:6px 0 0 0;font-size:13px;color:#bae6fd;">
+                Audit Window: <strong>${escapeHtmlDigest(periodStart)}</strong> &mdash; <strong>${escapeHtmlDigest(periodEnd)}</strong>
+              </p>
+            </td>
+          </tr>
+          <tr>
+            <td style="background:#0f172a;border-bottom:1px solid #1e293b;padding:12px 24px;font-size:13px;color:#94a3b8;">
+              Prepared exclusively for: <strong style="color:#f8fafc;">${safeName}</strong> (&lt;${safeEmail}&gt;)
+            </td>
+          </tr>
+          <tr>
+            <td style="padding:24px;">
+              <table width="100%" cellspacing="0" cellpadding="0" style="margin-bottom:24px;">
+                <tr>
+                  <td width="24%" style="background:#0f172a;border:1px solid #1e293b;border-radius:8px;padding:14px;text-align:center;">
+                    <div style="font-size:20px;font-weight:bold;color:#f8fafc;">${totalEmails}</div>
+                    <div style="font-size:11px;color:#94a3b8;margin-top:2px;">Emails Audited</div>
+                  </td>
+                  <td width="3%"></td>
+                  <td width="23%" style="background:#0f172a;border:1px solid #065f46;border-radius:8px;padding:14px;text-align:center;">
+                    <div style="font-size:20px;font-weight:bold;color:#10b981;">${safeCount}</div>
+                    <div style="font-size:11px;color:#94a3b8;margin-top:2px;">Safe Emails</div>
+                  </td>
+                  <td width="3%"></td>
+                  <td width="23%" style="background:#0f172a;border:1px solid #991b1b;border-radius:8px;padding:14px;text-align:center;">
+                    <div style="font-size:20px;font-weight:bold;color:#ef4444;">${threatCount}</div>
+                    <div style="font-size:11px;color:#94a3b8;margin-top:2px;">Threats Flagged</div>
+                  </td>
+                  <td width="3%"></td>
+                  <td width="24%" style="background:#0f172a;border:1px solid #1e293b;border-radius:8px;padding:14px;text-align:center;">
+                    <div style="font-size:20px;font-weight:bold;color:#38bdf8;">${totalClicks}</div>
+                    <div style="font-size:11px;color:#94a3b8;margin-top:2px;">URL Clicks</div>
+                  </td>
+                </tr>
+              </table>
+              <div style="font-size:16px;font-weight:bold;color:#f8fafc;margin-bottom:14px;">
+                📋 15-Day Time-Slab Records (Sender, Receiver, ML Scores &amp; Clicks)
+              </div>
+              ${cardsHtml}
+              <div style="background:#0c192c;border:1px solid #1e3a8a;border-radius:8px;padding:16px;margin-top:20px;">
+                <div style="font-size:13px;font-weight:bold;color:#60a5fa;margin-bottom:4px;">
+                  💡 Autonomous Security Recommendation:
+                </div>
+                <div style="font-size:12px;color:#93c5fd;line-height:1.5;">
+                  SafeInbox AI inspects all incoming emails and link destinations using local ONNX neural networks. If you see high ML risk scores or unrecognized sender domains above, avoid entering credentials or running file attachments.
+                </div>
+              </div>
+            </td>
+          </tr>
+          <tr>
+            <td style="background:#030712;border-top:1px solid #1e293b;padding:20px 24px;text-align:center;font-size:11px;color:#64748b;">
+              <p style="margin:0 0 4px 0;">SafeInbox AI &bull; Autonomous Client-Side Threat Intelligence</p>
+              <p style="margin:0;">This scheduled report is automatically generated every 15 days for your account. Confidential &amp; Encrypted.</p>
+            </td>
+          </tr>
+        </table>
+      </td>
+    </tr>
+  </table>
+</body>
+</html>`;
+}
+
+async function get15DayDigestData() {
+  if (typeof chrome === "undefined" || !chrome.storage || !chrome.storage.local) {
+    return {
+      userEmail: "guest@safeinbox.local",
+      userName: "Guest Analyst",
+      periodStart: new Date(Date.now() - DIGEST_INTERVAL_MS).toISOString().slice(0, 10),
+      periodEnd: new Date().toISOString().slice(0, 10),
+      totalEmails: 0,
+      threatCount: 0,
+      clickCount: 0,
+      records: []
+    };
+  }
+
+  return new Promise((resolve) => {
+    chrome.storage.local.get([
+      DIGEST_RECORDS_KEY,
+      DIGEST_LAST_SENT_KEY,
+      "safeinbox_auth",
+      "safeinbox_user_session"
+    ], (res) => {
+      const records = Array.isArray(res && res[DIGEST_RECORDS_KEY]) ? res[DIGEST_RECORDS_KEY] : [];
+      const auth = res && res.safeinbox_auth;
+      const session = res && res.safeinbox_user_session;
+      const userEmail = (auth && auth.email) || (session && session.email) || "guest@safeinbox.local";
+      const userName = (auth && auth.user && auth.user.full_name) || (session && session.name) || "SafeInbox User";
+      const lastSent = (res && res[DIGEST_LAST_SENT_KEY]) || (Date.now() - DIGEST_INTERVAL_MS);
+      const periodStart = new Date(lastSent).toISOString().slice(0, 10);
+      const periodEnd = new Date().toISOString().slice(0, 10);
+
+      const threatCount = records.filter(r => (r.composite_risk >= 35) || ["HIGH", "CRITICAL", "MEDIUM"].includes(r.risk_level)).length;
+      const clickCount = records.reduce((acc, r) => acc + (Array.isArray(r.clicked_urls) ? r.clicked_urls.length : 0), 0);
+
+      resolve({
+        userEmail,
+        userName,
+        periodStart,
+        periodEnd,
+        totalEmails: records.length,
+        threatCount,
+        clickCount,
+        nextDispatchDue: lastSent + DIGEST_INTERVAL_MS,
+        records
+      });
+    });
+  });
+}
+
+async function preview15DayDigest(targetEmail = null) {
+  const data = await get15DayDigestData();
+  const effectiveEmail = targetEmail || data.userEmail;
+  const html = generateLocalDigestHtml(
+    effectiveEmail,
+    data.userName,
+    data.periodStart,
+    data.periodEnd,
+    data.records
+  );
+  return {
+    userEmail: effectiveEmail,
+    periodStart: data.periodStart,
+    periodEnd: data.periodEnd,
+    totalEmails: data.totalEmails,
+    threatCount: data.threatCount,
+    clickCount: data.clickCount,
+    html
+  };
+}
+
+async function dispatch15DayDigestNow({ force = false, targetEmail = null, isAutomatic = false } = {}) {
+  const data = await get15DayDigestData();
+  const effectiveEmail = targetEmail || data.userEmail;
+
+  // If automatic and 15 days haven't passed, skip
+  if (isAutomatic && !force && Date.now() < data.nextDispatchDue) {
+    return {
+      success: true,
+      skipped: true,
+      reason: "15-day interval has not elapsed yet.",
+      nextDue: data.nextDispatchDue
+    };
+  }
+
+  // Check if backend cloud URL is configured
+  let cloudUrl = "";
+  try {
+    const cloudRes = await new Promise(r => chrome.storage.local.get(["cloud_backend_url"], r));
+    cloudUrl = (cloudRes && cloudRes.cloud_backend_url) ? cloudRes.cloud_backend_url.replace(/\/+$/, "") : "";
+  } catch {}
+
+  const payload = {
+    user_email: effectiveEmail,
+    user_name: data.userName,
+    period_start: data.periodStart,
+    period_end: data.periodEnd,
+    records: data.records
+  };
+
+  let dispatchMode = "local_autonomous";
+  let deliveryNote = "Compiled and generated locally (autonomous extension mode).";
+  let renderedHtml = "";
+
+  if (cloudUrl && typeof fetch === "function") {
+    try {
+      const resp = await fetch(`${cloudUrl}/api/v1/digest/send`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload)
+      });
+      if (resp.ok) {
+        const json = await resp.json();
+        dispatchMode = json.dispatch_mode || "smtp";
+        deliveryNote = json.message || "Delivered via backend SMTP";
+        renderedHtml = json.preview_html || "";
+      }
+    } catch (e) {
+      console.warn("Backend digest send failed, falling back to local digest generation:", e);
+    }
+  }
+
+  if (!renderedHtml) {
+    renderedHtml = generateLocalDigestHtml(
+      effectiveEmail,
+      data.userName,
+      data.periodStart,
+      data.periodEnd,
+      data.records
+    );
+  }
+
+  // Update last sent time and dispatch history
+  await new Promise(r => {
+    chrome.storage.local.get([DIGEST_HISTORY_KEY], (histRes) => {
+      const history = Array.isArray(histRes && histRes[DIGEST_HISTORY_KEY]) ? histRes[DIGEST_HISTORY_KEY] : [];
+      history.push({
+        timestamp: Date.now(),
+        user_email: effectiveEmail,
+        period_start: data.periodStart,
+        period_end: data.periodEnd,
+        total_emails: data.totalEmails,
+        threat_count: data.threatCount,
+        click_count: data.clickCount,
+        dispatch_mode: dispatchMode,
+        delivery_note: deliveryNote
+      });
+      const trimmedHistory = history.slice(-20);
+      chrome.storage.local.set({
+        [DIGEST_LAST_SENT_KEY]: Date.now(),
+        [DIGEST_HISTORY_KEY]: trimmedHistory
+      }, r);
+    });
+  });
+
+  return {
+    success: true,
+    user_email: effectiveEmail,
+    period: `${data.periodStart} to ${data.periodEnd}`,
+    total_emails: data.totalEmails,
+    threats_detected: data.threatCount,
+    total_clicks: data.clickCount,
+    dispatch_mode: dispatchMode,
+    delivery_note: deliveryNote,
+    preview_html: renderedHtml
+  };
 }

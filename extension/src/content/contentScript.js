@@ -90,12 +90,206 @@ function recordWebmailUrlClick(entry) {
             console.warn("SafeInbox AI failed to write webmail click:", chrome.runtime.lastError);
             resolve(false);
           } else {
+            // Also associate click with the corresponding 15-day email audit record
+            associateClickWith15DayRecord(clickRecord);
+
+            // Dual-write to backend database via background service worker if available
+            if (typeof chrome !== "undefined" && chrome.runtime && chrome.runtime.sendMessage) {
+              try {
+                chrome.runtime.sendMessage({
+                  type: "RECORD_WEBMAIL_CLICK",
+                  clickRecord: clickRecord
+                }, () => {
+                  if (chrome.runtime.lastError) { /* ignore background sleep */ }
+                });
+              } catch (dispatchErr) {
+                // Offline safe
+              }
+            }
             resolve(true);
           }
         });
       });
     } catch (err) {
       console.warn("SafeInbox AI recordWebmailUrlClick error:", err);
+      resolve(false);
+    }
+  });
+}
+
+// =============================================================================
+// 15-Day Email Security Record Audit & Tracking
+// =============================================================================
+const EMAIL_RECORDS_15DAY_KEY = "safeinbox_15day_email_records";
+const MAX_15DAY_RECORDS = 500;
+
+function get15DayTimeSlab(date = new Date()) {
+  const now = date.getTime();
+  const past = now - (15 * 86400000);
+  const dPast = new Date(past).toISOString().slice(0, 10);
+  const dNow = new Date(now).toISOString().slice(0, 10);
+  return `${dPast} to ${dNow}`;
+}
+
+function record15DayEmailAudit(emailData, emailVerdict, avgUrlRisk, compositeRisk, compLevel) {
+  if (typeof chrome === "undefined" || !chrome.storage || !chrome.storage.local) {
+    return Promise.resolve(false);
+  }
+  if (!isWebmailDomain()) {
+    return Promise.resolve(false);
+  }
+  if (!emailData) return Promise.resolve(false);
+
+  const sender = emailData.senderName ? `${emailData.senderName} <${emailData.senderEmail}>` : (emailData.senderEmail || "Unknown Sender");
+  const receiver = emailData.receiverEmail || "Current User";
+  const subject = emailData.subject || "(No Subject)";
+
+  const newRecord = {
+    id: `rec_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`,
+    sender: String(sender).slice(0, 200),
+    receiver: String(receiver).slice(0, 200),
+    subject: String(subject).slice(0, 250),
+    timestamp: Date.now(),
+    date_iso: new Date().toISOString(),
+    time_slab: get15DayTimeSlab(),
+    composite_risk: typeof compositeRisk === "number" ? compositeRisk : 0,
+    risk_level: String(compLevel || "SAFE"),
+    text_threat_score: emailVerdict && typeof emailVerdict.risk_score === "number" ? emailVerdict.risk_score : 0,
+    url_threat_score: typeof avgUrlRisk === "number" ? avgUrlRisk : 0,
+    threat_vectors: emailVerdict && Array.isArray(emailVerdict.threat_vectors) ? emailVerdict.threat_vectors : [],
+    clicked_urls: []
+  };
+
+  return new Promise((resolve) => {
+    try {
+      chrome.storage.local.get([EMAIL_RECORDS_15DAY_KEY], (res) => {
+        if (chrome.runtime.lastError) {
+          console.warn("SafeInbox AI failed to read 15-day records:", chrome.runtime.lastError);
+          resolve(false);
+          return;
+        }
+        const records = Array.isArray(res && res[EMAIL_RECORDS_15DAY_KEY]) ? res[EMAIL_RECORDS_15DAY_KEY] : [];
+
+        // Check if an existing record within the past 5 minutes matches sender and subject
+        let recentIdx = -1;
+        for (let i = records.length - 1; i >= 0; i--) {
+          const r = records[i];
+          if (r.sender === newRecord.sender && r.subject === newRecord.subject && (Date.now() - r.timestamp) < 300000) {
+            recentIdx = i;
+            break;
+          }
+        }
+
+        if (recentIdx !== -1) {
+          const existing = records[recentIdx];
+          records[recentIdx] = {
+            ...existing,
+            composite_risk: newRecord.composite_risk,
+            risk_level: newRecord.risk_level,
+            text_threat_score: newRecord.text_threat_score,
+            url_threat_score: newRecord.url_threat_score,
+            threat_vectors: newRecord.threat_vectors
+          };
+        } else {
+          records.push(newRecord);
+        }
+
+        const trimmed = records.length > MAX_15DAY_RECORDS ? records.slice(-MAX_15DAY_RECORDS) : records;
+        chrome.storage.local.set({ [EMAIL_RECORDS_15DAY_KEY]: trimmed }, () => {
+          if (chrome.runtime.lastError) {
+            console.warn("SafeInbox AI failed to save 15-day email record:", chrome.runtime.lastError);
+            resolve(false);
+          } else {
+            if (typeof chrome !== "undefined" && chrome.runtime && chrome.runtime.sendMessage) {
+              try {
+                chrome.runtime.sendMessage({
+                  type: "RECORD_EMAIL_AUDIT",
+                  auditRecord: {
+                    sender: newRecord.sender,
+                    receiver: newRecord.receiver,
+                    subject: newRecord.subject,
+                    risk_score: newRecord.composite_risk,
+                    risk_level: newRecord.risk_level,
+                    threat_vectors: newRecord.threat_vectors
+                  }
+                }, () => {
+                  if (chrome.runtime.lastError) { /* ignore */ }
+                });
+              } catch (e) {}
+            }
+            resolve(true);
+          }
+        });
+      });
+    } catch (err) {
+      console.warn("SafeInbox AI record15DayEmailAudit error:", err);
+      resolve(false);
+    }
+  });
+}
+
+function associateClickWith15DayRecord(clickRecord) {
+  if (typeof chrome === "undefined" || !chrome.storage || !chrome.storage.local) {
+    return Promise.resolve(false);
+  }
+  return new Promise((resolve) => {
+    try {
+      chrome.storage.local.get([EMAIL_RECORDS_15DAY_KEY], (res) => {
+        if (chrome.runtime.lastError) {
+          resolve(false);
+          return;
+        }
+        const records = Array.isArray(res && res[EMAIL_RECORDS_15DAY_KEY]) ? res[EMAIL_RECORDS_15DAY_KEY] : [];
+        const clickItem = {
+          url: clickRecord.url,
+          defanged: clickRecord.defanged || defangUrlForLog(clickRecord.url),
+          risk_score: typeof clickRecord.risk_score === "number" ? clickRecord.risk_score : 0,
+          risk_level: String(clickRecord.risk_level || "AUDITED"),
+          timestamp: clickRecord.date_iso || new Date().toISOString()
+        };
+
+        if (records.length === 0) {
+          const syntheticEmail = {
+            id: `rec_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`,
+            sender: clickRecord.sender || "Webmail Sender",
+            receiver: "Current User",
+            subject: clickRecord.email_subject || "(Webmail Link Click)",
+            timestamp: clickRecord.timestamp || Date.now(),
+            date_iso: clickRecord.date_iso || new Date().toISOString(),
+            time_slab: get15DayTimeSlab(),
+            composite_risk: clickRecord.risk_score || 0,
+            risk_level: clickRecord.risk_level || "SAFE",
+            text_threat_score: 0,
+            url_threat_score: clickRecord.risk_score || 0,
+            threat_vectors: [],
+            clicked_urls: [clickItem]
+          };
+          records.push(syntheticEmail);
+        } else {
+          let match = null;
+          for (let i = records.length - 1; i >= 0; i--) {
+            const r = records[i];
+            if ((clickRecord.email_subject && r.subject === clickRecord.email_subject) ||
+                (clickRecord.sender && r.sender === clickRecord.sender)) {
+              match = r;
+              break;
+            }
+          }
+          if (!match) {
+            match = records[records.length - 1];
+          }
+          if (!Array.isArray(match.clicked_urls)) {
+            match.clicked_urls = [];
+          }
+          match.clicked_urls.push(clickItem);
+        }
+
+        const trimmed = records.length > MAX_15DAY_RECORDS ? records.slice(-MAX_15DAY_RECORDS) : records;
+        chrome.storage.local.set({ [EMAIL_RECORDS_15DAY_KEY]: trimmed }, () => {
+          resolve(true);
+        });
+      });
+    } catch (err) {
       resolve(false);
     }
   });
@@ -346,6 +540,26 @@ async function processSingleEmailContainer(containerEl, clientType) {
   // RENDER PERMANENT BANNER 2 (CONTENT & TEXT ONLY)
   renderContentSecurityBanner(banner2El, emailVerdict, emailData);
   highlightSuspiciousSentences(emailData.bodyEl, emailVerdict.threat_vectors || []);
+
+  // Record into 15-Day Security Digest Audit Store
+  try {
+    let totalUrlRisk = 0;
+    let countedUrls = 0;
+    for (const u of urlScanMap.values()) {
+      if (typeof u.risk_score === "number") {
+        totalUrlRisk += u.risk_score;
+        countedUrls++;
+      }
+    }
+    const avgUrlRisk = countedUrls > 0 ? (totalUrlRisk / countedUrls) : 0;
+    const textRisk = emailVerdict && typeof emailVerdict.risk_score === "number" ? emailVerdict.risk_score : 0;
+    const compositeRisk = countedUrls > 0 ? Math.round((textRisk + avgUrlRisk) / 2) : textRisk;
+    const compLevel = compositeRisk >= 75 ? "CRITICAL" : compositeRisk >= 50 ? "HIGH" : compositeRisk >= 25 ? "MEDIUM" : "SAFE";
+
+    record15DayEmailAudit(emailData, emailVerdict, avgUrlRisk, compositeRisk, compLevel);
+  } catch (auditErr) {
+    console.warn("SafeInbox AI failed to record 15-day audit log:", auditErr);
+  }
 
   containerEl.dataset.aegisaiScanned = "done";
   if (containerEl.dataset.aegisaiPendingRescan === "true") {
@@ -875,6 +1089,21 @@ function saveBrowserFeedback(target, isSafe, targetType) {
             resolve({ status: "error", message: chrome.runtime.lastError.message });
             return;
           }
+          if (typeof chrome !== "undefined" && chrome.runtime && chrome.runtime.sendMessage) {
+            try {
+              chrome.runtime.sendMessage({
+                type: "RECORD_FEEDBACK",
+                feedback: {
+                  target: target.trim().slice(0, maxTargetLength),
+                  target_type: targetType === "EMAIL" ? "TEXT" : "URL",
+                  is_safe: isSafe,
+                  source: "webmail_banner"
+                }
+              }, () => {
+                if (chrome.runtime.lastError) { /* ignore */ }
+              });
+            } catch (e) {}
+          }
           resolve({ status: "saved_locally", is_safe: isSafe });
         });
       });
@@ -1149,4 +1378,16 @@ if (document.readyState === "loading") {
   document.addEventListener("DOMContentLoaded", startAutoEmailObserver);
 } else {
   startAutoEmailObserver();
+}
+
+if (typeof module !== "undefined" && module.exports) {
+  module.exports = {
+    recordWebmailUrlClick,
+    record15DayEmailAudit,
+    associateClickWith15DayRecord,
+    get15DayTimeSlab,
+    defangUrlForLog,
+    EMAIL_RECORDS_15DAY_KEY,
+    WEBMAIL_CLICKS_KEY
+  };
 }

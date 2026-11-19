@@ -64,3 +64,22 @@ class ScanAuditLog(Base):
     threat_vectors = Column(JSON, default=list, nullable=False)
     created_at = Column(DateTime(timezone=True), default=utcnow, nullable=False)
 
+
+class UrlClickLog(Base):
+    """Persistent audit log storing user click actions on hyperlinks in emails."""
+
+    __tablename__ = "url_clicks"
+
+    id = Column(Integer, primary_key=True, index=True)
+    user_email = Column(String(255), index=True, nullable=True)
+    url = Column(String(4096), nullable=False)
+    defanged_url = Column(String(4096), nullable=False)
+    url_hash = Column(String(64), index=True, nullable=False)
+    email_subject = Column(String(255), nullable=True)
+    sender = Column(String(255), nullable=True)
+    risk_score = Column(Float, nullable=False, default=0.0)
+    risk_level = Column(String(32), nullable=False, default="AUDITED")
+    proceeded = Column(Boolean, nullable=False, default=True)
+    source = Column(String(64), nullable=False, default="email_body_link")
+    clicked_at = Column(DateTime(timezone=True), default=utcnow, nullable=False)
+

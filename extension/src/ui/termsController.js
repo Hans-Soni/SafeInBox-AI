@@ -2,7 +2,7 @@
 
 (() => {
   const TERMS_VERSION = "1.0.0";
-  const BACKEND_URL = "http://localhost:8080";
+  const BACKEND_URL = "https://safeinbox-ai.onrender.com";
 
   const el = {
     consentCard: document.getElementById("consentCard"),

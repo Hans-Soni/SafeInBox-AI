@@ -1,6 +1,9 @@
 import asyncio
 import os
 import sys
+
+if sys.platform == "win32":
+    asyncio.set_event_loop_policy(asyncio.WindowsSelectorEventLoopPolicy())
 from logging.config import fileConfig
 
 from sqlalchemy import pool
@@ -17,8 +20,7 @@ if parent_dir not in sys.path:
 
 from app.database import Base
 from app.config import settings
-from app.models.threat import ThreatURL, FeedbackRecord, ScanAuditLog
-from app.models.user import User
+import app.models  # Registers ThreatURL, FeedbackRecord, ScanAuditLog, User, TermsConsent, SecurityDigestLog
 
 # this is the Alembic Config object, which provides
 # access to the values within the .ini file in use.
@@ -91,8 +93,15 @@ async def run_async_migrations() -> None:
 
 def run_migrations_online() -> None:
     """Run migrations in 'online' mode."""
-
-    asyncio.run(run_async_migrations())
+    url = config.get_main_option("sqlalchemy.url")
+    if "sqlite" in url:
+        from sqlalchemy import create_engine
+        sync_url = url.replace("sqlite+aiosqlite://", "sqlite://")
+        connectable = create_engine(sync_url, poolclass=pool.NullPool)
+        with connectable.connect() as connection:
+            do_run_migrations(connection)
+    else:
+        asyncio.run(run_async_migrations())
 
 
 if context.is_offline_mode():

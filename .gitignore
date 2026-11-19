@@ -13,6 +13,7 @@ node_modules/
 
 # Data safety - never commit raw sensitive or unauthorized threat datasets
 # Only committed samples should be defanged synthetic or public benchmarks
+raw/
 data/raw/*
 !data/raw/.gitkeep
 !data/raw/README.md
@@ -35,3 +36,13 @@ scratch/
 
 # Large vendor WASM binaries (synced automatically via npm postinstall)
 extension/vendor/*.wasm
+# Processed ML data and intermediate checkpoints
+data/processed/*
+!data/processed/.gitkeep
+data/models/*
+!data/models/.gitkeep
+
+# Environment & Credentials
+.env
+*.env
+backend/.env

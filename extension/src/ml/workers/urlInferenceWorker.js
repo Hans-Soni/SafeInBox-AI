@@ -1,18 +1,51 @@
 "use strict";
 
-importScripts("../../url/urlThreatParser.js");
+function getResourceUrl(relativePath) {
+  if (typeof chrome !== "undefined" && chrome && chrome.runtime && typeof chrome.runtime.getURL === "function") {
+    try {
+      return chrome.runtime.getURL(relativePath);
+    } catch (_) {}
+  }
+  const cleanPath = String(relativePath || "").replace(/^\/+/, "");
+  if (typeof self !== "undefined" && self.location) {
+    if (self.location.origin && self.location.origin !== "null" && self.location.origin !== "undefined") {
+      return `${self.location.origin.replace(/\/+$/, "")}/${cleanPath}`;
+    }
+    if (self.location.href) {
+      try {
+        return new URL(cleanPath, self.location.href).href;
+      } catch (_) {}
+    }
+  }
+  return cleanPath;
+}
 
-let ort = null;
+try {
+  try {
+    importScripts(getResourceUrl("src/url/urlThreatParser.js"));
+  } catch (_) {
+    importScripts("../../url/urlThreatParser.js");
+  }
+} catch (e) {
+  // parser load error
+}
+
 let sessionPromise = null;
 let session = null;
 let modelError = null;
 
 try {
-  importScripts("../../../vendor/ort.min.js");
-  ort = self.ort || null;
-  if (ort) {
-    ort.env.wasm.wasmPaths = chrome.runtime.getURL("vendor/");
-    ort.env.wasm.numThreads = 1;
+  try {
+    importScripts(getResourceUrl("vendor/ort.min.js"));
+  } catch (_) {
+    importScripts("../../../vendor/ort.min.js");
+  }
+  const activeOrt = (typeof self !== "undefined" && self.ort) || (typeof ort !== "undefined" ? ort : null);
+  if (activeOrt) {
+    if (typeof self !== "undefined" && !self.ort) self.ort = activeOrt;
+    activeOrt.env.wasm.wasmPaths = getResourceUrl("vendor/");
+    activeOrt.env.wasm.numThreads = 1;
+    activeOrt.env.wasm.proxy = false;
   }
 } catch (error) {
   modelError = `ONNX Runtime Web is not installed: ${error.message}`;
@@ -22,11 +55,14 @@ async function loadModel() {
   if (session) return session;
   if (sessionPromise) return sessionPromise;
   sessionPromise = (async () => {
-    if (!ort) return null;
-    const modelUrl = chrome.runtime.getURL("models/url-threat.onnx");
+    const activeOrt = (typeof self !== "undefined" && self.ort) || (typeof ort !== "undefined" ? ort : null);
+    if (!activeOrt) return null;
+    const modelUrl = getResourceUrl("models/url-threat.onnx");
     const response = await fetch(modelUrl);
     if (!response.ok) throw new Error("No trained ONNX model found at models/url-threat.onnx.");
-    session = await ort.InferenceSession.create(modelUrl, {
+    const modelBuffer = typeof response.arrayBuffer === "function" ? await response.arrayBuffer() : modelUrl;
+    const sessionInput = modelBuffer instanceof ArrayBuffer ? new Uint8Array(modelBuffer) : modelBuffer;
+    session = await activeOrt.InferenceSession.create(sessionInput, {
       executionProviders: ["wasm"],
       graphOptimizationLevel: "all"
     });
@@ -70,9 +106,11 @@ async function infer(parsed) {
       const featureInput = activeSession.inputNames.find((name) => /feature/i.test(name)) || activeSession.inputNames[0];
       const characterInput = activeSession.inputNames.find((name) => /char|token/i.test(name)) ||
         activeSession.inputNames.find((name) => name !== featureInput);
+      const activeOrt = (typeof self !== "undefined" && self.ort) || (typeof ort !== "undefined" ? ort : null);
+      if (!activeOrt) throw new Error("ONNX Runtime is not available.");
       const feeds = {
-        [featureInput]: new ort.Tensor("float32", Float32Array.from(parsed.featureVector), [1, parsed.featureVector.length]),
-        [characterInput]: new ort.Tensor("int32", Int32Array.from(parsed.charTensor), [1, parsed.charTensor.length])
+        [featureInput]: new activeOrt.Tensor("float32", Float32Array.from(parsed.featureVector), [1, parsed.featureVector.length]),
+        [characterInput]: new activeOrt.Tensor("int32", Int32Array.from(parsed.charTensor), [1, parsed.charTensor.length])
       };
       const output = await activeSession.run(feeds);
       modelRisk = extractModelProbability(output, activeSession.outputNames[0]);
@@ -117,10 +155,11 @@ self.onmessage = async (event) => {
 };
 
 loadModel().then((activeSession) => {
+  const activeOrt = (typeof self !== "undefined" && self.ort) || (typeof ort !== "undefined" ? ort : null);
   self.postMessage({
     type: "READY",
     modelAvailable: Boolean(activeSession),
     modelError,
-    runtimeAvailable: Boolean(ort)
+    runtimeAvailable: Boolean(activeOrt)
   });
 });

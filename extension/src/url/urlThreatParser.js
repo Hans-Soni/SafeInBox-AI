@@ -393,7 +393,9 @@
       attackTypes: Array.from(new Set(findings.map((finding) => finding.attackType))),
       heuristicRisk,
       featureVector: buildFeatureVector(metrics),
-      charTensor: buildCharacterTensor(rawInput)
+      charTensor: buildCharacterTensor(
+        `${url.host.replace(/^www\./i, "")}${url.pathname === "/" ? "" : url.pathname}${url.search}`
+      )
     };
   }
 

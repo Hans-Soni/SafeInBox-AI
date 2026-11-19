@@ -25,6 +25,24 @@ for (const file of runtimeFiles) {
   fs.copyFileSync(path.join(distribution, file), path.join(destination, file));
 }
 
+// Create fallback aliases so ONNX Runtime Web finds its assets regardless of single/multi-threading resolution
+const aliases = [
+  ["ort-wasm-simd-threaded.wasm", "ort-wasm-simd.wasm"],
+  ["ort-wasm-simd-threaded.wasm", "ort-wasm.wasm"],
+  ["ort-wasm-simd-threaded.wasm", "ort.wasm"],
+  ["ort-wasm-simd-threaded.mjs", "ort-wasm-simd.mjs"],
+  ["ort-wasm-simd-threaded.mjs", "ort-wasm.mjs"],
+  ["ort.min.js", "ort.all.min.js"]
+];
+
+for (const [src, dst] of aliases) {
+  const srcPath = path.join(destination, src);
+  const dstPath = path.join(destination, dst);
+  if (fs.existsSync(srcPath)) {
+    fs.copyFileSync(srcPath, dstPath);
+  }
+}
+
 const licensePath = path.join(packageRoot, "LICENSE");
 if (fs.existsSync(licensePath)) {
   fs.copyFileSync(licensePath, path.join(destination, "ONNX_RUNTIME_LICENSE.txt"));

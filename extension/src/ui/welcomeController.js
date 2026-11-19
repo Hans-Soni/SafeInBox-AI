@@ -42,6 +42,20 @@
     btnConfirmTermsSignUp: document.getElementById("btnConfirmTermsSignUp"),
     btnDeclineTermsSignUp: document.getElementById("btnDeclineTermsSignUp"),
 
+    // Email OTP verification view
+    authOtpVerificationView: document.getElementById("authOtpVerificationView"),
+    otpHeaderBadge: document.getElementById("otpHeaderBadge"),
+    otpTitle: document.getElementById("otpTitle"),
+    otpSubtitle: document.getElementById("otpSubtitle"),
+    otpTargetEmailDisplay: document.getElementById("otpTargetEmailDisplay"),
+    otpCodeInput: document.getElementById("otpCodeInput"),
+    otpCountdownTimer: document.getElementById("otpCountdownTimer"),
+    statusOtpVerification: document.getElementById("statusOtpVerification"),
+    btnSubmitVerifyOtp: document.getElementById("btnSubmitVerifyOtp"),
+    btnResendOtp: document.getElementById("btnResendOtp"),
+    otpResendCooldown: document.getElementById("otpResendCooldown"),
+    btnBackFromOtp: document.getElementById("btnBackFromOtp"),
+
     // Profile in modal
 
     profileName: document.getElementById("profileName"),
@@ -58,9 +72,107 @@
   };
 
   let pendingSignUp = null;
+  let pendingOtp = null;
+
+  const AUTH_EMAIL_REGEX = /^(?!\.)[a-zA-Z0-9_.+-]+(?<!\.)@(?!-)[a-zA-Z0-9-]+(?:\.[a-zA-Z0-9-]+)*\.[a-zA-Z]{2,24}$/;
+  let signInFailures = 0;
+  let signInLockoutUntil = 0;
+
+  function validateClientEmail(email) {
+    const clean = String(email || "").trim().toLowerCase();
+    if (!clean || clean.length > 255 || clean.includes("..") || !AUTH_EMAIL_REGEX.test(clean)) {
+      return "Please enter a valid email address (e.g. analyst@safeinbox.ai).";
+    }
+    // Neutralize SQL injection characters and null bytes
+    if (["'", '"', ';', '--', '/*', '*/', '\x00'].some(c => clean.includes(c))) {
+      return "Email contains disallowed characters.";
+    }
+    return null;
+  }
+
+  const COMMON_CLIENT_PASSWORDS = [
+    "password", "password123", "password1234", "password12345",
+    "12345678", "123456789", "1234567890", "qwerty123",
+    "admin123", "letmein1", "welcome1", "safeinbox", "safeinbox123"
+  ];
+
+  const SEQUENTIAL_RUNS = ["12345", "23456", "34567", "qwerty", "asdfgh", "zxcvbn", "abcdef"];
+
+  function validateClientPassword(password, email, fullName) {
+    if (typeof password !== "string" || password.length < 10) {
+      return "Password must be at least 10 characters long.";
+    }
+    if (password.length > 128) {
+      return "Password must not exceed 128 characters.";
+    }
+    const lowered = password.toLowerCase();
+    if (COMMON_CLIENT_PASSWORDS.includes(lowered)) {
+      return "Password is too common. Please choose a stronger, unique password.";
+    }
+    if (!/[A-Z]/.test(password)) {
+      return "Password must contain at least one uppercase letter (A-Z).";
+    }
+    if (!/[a-z]/.test(password)) {
+      return "Password must contain at least one lowercase letter (a-z).";
+    }
+    if (!/[0-9]/.test(password)) {
+      return "Password must contain at least one number (0-9).";
+    }
+    if (!/[!@#$%^&*()_+\-=\[\]{};':"\\|,.<>\/?~` ]/.test(password)) {
+      return "Password must contain at least one special character or symbol.";
+    }
+    if (/(.)\1{3,}/.test(password)) {
+      return "Password cannot contain 4 or more consecutive identical characters.";
+    }
+    for (const seq of SEQUENTIAL_RUNS) {
+      if (lowered.includes(seq)) {
+        return `Password contains a predictable sequential pattern ('${seq}').`;
+      }
+    }
+    if (email) {
+      const local = email.split("@")[0].toLowerCase();
+      const tokens = local.split(/[._\-+]/).filter(t => t.length >= 3);
+      for (const t of tokens) {
+        if (lowered.includes(t)) {
+          return `Password cannot contain parts of your email address ('${t}').`;
+        }
+      }
+    }
+    if (fullName) {
+      const tokens = fullName.toLowerCase().split(/\s+/).filter(t => t.length >= 3);
+      for (const t of tokens) {
+        if (lowered.includes(t)) {
+          return `Password cannot contain parts of your name ('${t}').`;
+        }
+      }
+    }
+    return null;
+  }
+
+  function checkClientSignInRateLimit() {
+    const now = Date.now();
+    if (now < signInLockoutUntil) {
+      const rem = Math.ceil((signInLockoutUntil - now) / 1000);
+      return `Too many failed attempts. Please wait ${rem}s before retrying.`;
+    }
+    return null;
+  }
+
+  function registerSignInFailure() {
+    signInFailures++;
+    if (signInFailures >= 5) {
+      signInLockoutUntil = Date.now() + 30000;
+      signInFailures = 0;
+    }
+  }
+
+  function resetSignInFailures() {
+    signInFailures = 0;
+    signInLockoutUntil = 0;
+  }
 
   function getBackendUrl() {
-    return "http://localhost:8080";
+    return "https://safeinbox-ai.onrender.com";
   }
 
   function openModal(tab = "signin") {
@@ -80,6 +192,7 @@
     clearStatus(el.statusSignUp);
     clearStatus(el.statusTermsReview);
     pendingSignUp = null;
+    pendingOtp = null;
   }
 
   function switchTab(tab) {
@@ -87,6 +200,7 @@
     if (el.authSignedOutView) el.authSignedOutView.style.display = "block";
     clearStatus(el.statusTermsReview);
     pendingSignUp = null;
+    pendingOtp = null;
 
     if (tab === "signup") {
       el.authTabSignUp?.classList.add("active");
@@ -117,14 +231,27 @@
 
   function getStoredAuth() {
     return new Promise((resolve) => {
+      const FIFTEEN_DAYS_MS = 15 * 24 * 60 * 60 * 1000;
       if (typeof chrome !== "undefined" && chrome.storage && chrome.storage.local) {
-        chrome.storage.local.get(["safeinbox_auth"], (res) => {
-          resolve(res && res.safeinbox_auth);
+        chrome.storage.local.get(["safeinbox_auth"], async (res) => {
+          const auth = res && res.safeinbox_auth;
+          if (auth && auth.saved_at && (Date.now() - auth.saved_at > FIFTEEN_DAYS_MS)) {
+            await removeAuth();
+            resolve(null);
+            return;
+          }
+          resolve(auth);
         });
       } else {
         try {
           const raw = localStorage.getItem("safeinbox_auth");
-          resolve(raw ? JSON.parse(raw) : null);
+          const auth = raw ? JSON.parse(raw) : null;
+          if (auth && auth.saved_at && (Date.now() - auth.saved_at > FIFTEEN_DAYS_MS)) {
+            localStorage.removeItem("safeinbox_auth");
+            resolve(null);
+            return;
+          }
+          resolve(auth);
         } catch {
           resolve(null);
         }
@@ -132,27 +259,61 @@
     });
   }
 
-  function saveAuth(token, user) {
+  function saveAuth(token, user, expiresInSeconds = 15 * 24 * 60 * 60) {
     return new Promise((resolve) => {
-      const authData = { token, user, saved_at: Date.now() };
+      const authData = {
+        token,
+        user,
+        saved_at: Date.now(),
+        expires_at: Date.now() + expiresInSeconds * 1000 // 15-day session lifetime
+      };
+      const sessionData = { email: user.email, name: user.full_name || user.email.split("@")[0] };
       if (typeof chrome !== "undefined" && chrome.storage && chrome.storage.local) {
-        chrome.storage.local.set({ safeinbox_auth: authData, cloudBackendEnabled: true }, resolve);
+        chrome.storage.local.set({
+          safeinbox_auth: authData,
+          safeinbox_user_session: sessionData,
+          cloudBackendEnabled: true
+        }, resolve);
       } else {
         try {
           localStorage.setItem("safeinbox_auth", JSON.stringify(authData));
+          localStorage.setItem("safeinbox_user_session", JSON.stringify(sessionData));
         } catch {}
         resolve();
       }
     });
   }
 
-  function removeAuth() {
+  async function removeAuth() {
+    // 1. Invalidate Bearer token on backend
+    try {
+      const stored = await getStoredAuth();
+      const token = stored && stored.token;
+      if (token && !token.startsWith("local_token_")) {
+        const baseUrl = getBackendUrl();
+        await fetch(`${baseUrl}/api/v1/auth/signout`, {
+          method: "POST",
+          headers: {
+            "Authorization": `Bearer ${token}`,
+            "Content-Type": "application/json"
+          }
+        }).catch(() => {});
+      }
+    } catch {}
+
+    // 2. Remove all auth and user session keys from storage
     return new Promise((resolve) => {
       if (typeof chrome !== "undefined" && chrome.storage && chrome.storage.local) {
-        chrome.storage.local.remove(["safeinbox_auth"], resolve);
+        chrome.storage.local.remove(["safeinbox_auth", "safeinbox_user_session"], () => {
+          if (chrome.storage.session) {
+            chrome.storage.session.remove(["activeEmailScan"]).catch(() => {});
+          }
+          resolve();
+        });
       } else {
         try {
           localStorage.removeItem("safeinbox_auth");
+          localStorage.removeItem("safeinbox_user_session");
         } catch {}
         resolve();
       }
@@ -164,21 +325,40 @@
   }
 
   async function hashPasswordLocal(password, salt) {
-    try {
-      if (typeof crypto !== "undefined" && crypto.subtle) {
-        const enc = new TextEncoder();
-        const data = enc.encode(password + "::" + salt);
-        const hashBuf = await crypto.subtle.digest("SHA-256", data);
-        return Array.from(new Uint8Array(hashBuf)).map(b => b.toString(16).padStart(2, "0")).join("");
-      }
-    } catch {}
-    let hash = 0;
-    const str = password + "::" + salt;
-    for (let i = 0; i < str.length; i++) {
-      hash = ((hash << 5) - hash) + str.charCodeAt(i);
-      hash |= 0;
+    if (typeof crypto !== "undefined" && crypto.subtle) {
+      const enc = new TextEncoder();
+      const keyMaterial = await crypto.subtle.importKey(
+        "raw",
+        enc.encode(password),
+        { name: "PBKDF2" },
+        false,
+        ["deriveBits"]
+      );
+      const saltBuffer = enc.encode(salt);
+      const derivedBits = await crypto.subtle.deriveBits(
+        {
+          name: "PBKDF2",
+          salt: saltBuffer,
+          iterations: 100000,
+          hash: "SHA-256"
+        },
+        keyMaterial,
+        256
+      );
+      return Array.from(new Uint8Array(derivedBits))
+        .map(b => b.toString(16).padStart(2, "0"))
+        .join("");
     }
-    return "h_" + Math.abs(hash).toString(16);
+    throw new Error("WebCrypto is required for secure authentication.");
+  }
+
+  function generateCryptoSalt() {
+    if (typeof crypto !== "undefined" && crypto.getRandomValues) {
+      const arr = new Uint8Array(16);
+      crypto.getRandomValues(arr);
+      return Array.from(arr).map(b => b.toString(16).padStart(2, "0")).join("");
+    }
+    return Date.now().toString(36) + Math.random().toString(36).slice(2, 10);
   }
 
   function getRegisteredUsers() {
@@ -199,11 +379,16 @@
   }
 
   function saveRegisteredUser(email, fullName, passwordHash, salt) {
-    return new Promise(async (resolve) => {
+    return new Promise(async (resolve, reject) => {
       const users = await getRegisteredUsers();
-      users[email.toLowerCase()] = {
-        email: email.toLowerCase(),
-        full_name: fullName || email.split("@")[0],
+      const cleanEmail = email.toLowerCase().trim();
+      if (users[cleanEmail]) {
+        reject(new Error("An account with this email address already exists. Only 1 account per email is allowed. Please sign in instead."));
+        return;
+      }
+      users[cleanEmail] = {
+        email: cleanEmail,
+        full_name: fullName || cleanEmail.split("@")[0],
         salt,
         password_hash: passwordHash,
         created_at: new Date().toISOString()
@@ -294,9 +479,25 @@
     el.formSignIn?.addEventListener("submit", async (e) => {
       e.preventDefault();
 
+      // Enforce client-side rate limit lockout against brute-force attacks
+      const lockoutMsg = checkClientSignInRateLimit();
+      if (lockoutMsg) {
+        setStatus(el.statusSignIn, `⏳ ${lockoutMsg}`, "error");
+        return;
+      }
+
       const email = el.inputSignInEmail.value.trim().toLowerCase();
       const password = el.inputSignInPassword.value;
-      if (!email || !password) return;
+
+      const emailErr = validateClientEmail(email);
+      if (emailErr) {
+        setStatus(el.statusSignIn, emailErr, "error");
+        return;
+      }
+      if (!password) {
+        setStatus(el.statusSignIn, "Please enter your password.", "error");
+        return;
+      }
 
       setStatus(el.statusSignIn, "Authenticating...", "info");
       el.btnSubmitSignIn.disabled = true;
@@ -308,25 +509,58 @@
       let agreedAt = new Date().toISOString();
       let authenticated = false;
 
-      // 1. Try Backend API first if reachable
+      // 1. Try Backend API first with 2FA OTP verification
       try {
         const baseUrl = getBackendUrl();
-        const resp = await fetch(`${baseUrl}/api/v1/auth/signin`, {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            email,
-            password,
-            terms_agreed: true,
-            terms_version: "1.0.0",
-            mac_address: macAddress
-          })
-        });
+        let resp;
+        try {
+          resp = await fetch(`${baseUrl}/api/v1/auth/signin/request-otp`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ email, password })
+          });
+        } catch (_) {
+          resp = await fetch(`${baseUrl}/api/v1/auth/signin`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              email,
+              password,
+              terms_agreed: true,
+              terms_version: "1.0.0",
+              mac_address: macAddress
+            })
+          });
+        }
 
         const data = await resp.json().catch(() => ({}));
         if (!resp.ok) {
-          // Backend responded with invalid credentials! Stop immediately!
+          registerSignInFailure();
           setStatus(el.statusSignIn, data.detail || "Invalid email or password.", "error");
+          el.btnSubmitSignIn.disabled = false;
+          return;
+        }
+
+        if (data.requires_otp) {
+          pendingOtp = { flow: "signin", email, password, macAddress };
+          pendingSignUp = null;
+
+          if (el.authSignedOutView) el.authSignedOutView.style.display = "none";
+          if (el.authOtpVerificationView) el.authOtpVerificationView.style.display = "block";
+          if (el.otpHeaderBadge) el.otpHeaderBadge.textContent = "🔐 Two-Factor Authorization";
+          if (el.otpTitle) el.otpTitle.textContent = "Authorize Sign In";
+          if (el.otpSubtitle) {
+            el.otpSubtitle.innerHTML = `Enter the 6-digit verification code sent to <strong id="otpTargetEmailDisplay" style="color:#FFA586;">${escapeHtml(email)}</strong> to securely complete Sign In.`;
+          }
+          if (el.btnSubmitVerifyOtp) el.btnSubmitVerifyOtp.textContent = "✓ Verify & Sign In";
+          if (el.btnBackFromOtp) el.btnBackFromOtp.textContent = "← Back to Sign In";
+          if (el.otpTargetEmailDisplay) el.otpTargetEmailDisplay.textContent = email;
+          if (el.otpCodeInput) {
+            el.otpCodeInput.value = "";
+            setTimeout(() => el.otpCodeInput.focus(), 100);
+          }
+          clearStatus(el.statusOtpVerification);
+          startOtpTimers(data.expires_in_seconds || 600, data.resend_cooldown_seconds || 60);
           el.btnSubmitSignIn.disabled = false;
           return;
         }
@@ -347,16 +581,18 @@
         const registeredUsers = await getRegisteredUsers();
         const existing = registeredUsers[email];
         if (!existing) {
-          setStatus(el.statusSignIn, "Account not found with this email. Please check your credentials or Sign Up first.", "error");
+          registerSignInFailure();
+          setStatus(el.statusSignIn, "Account not found on this device and unable to reach server. If you registered on another device, please ensure the server is running to sign in on this device.", "error");
           el.btnSubmitSignIn.disabled = false;
-          return; // STOP! Email is not registered!
+          return;
         }
 
         const computedHash = await hashPasswordLocal(password, existing.salt);
         if (computedHash !== existing.password_hash) {
+          registerSignInFailure();
           setStatus(el.statusSignIn, "Invalid email or password.", "error");
           el.btnSubmitSignIn.disabled = false;
-          return; // STOP! Wrong password!
+          return;
         }
 
         token = "local_token_" + Date.now();
@@ -370,13 +606,38 @@
       }
 
       if (!authenticated) {
+        registerSignInFailure();
         setStatus(el.statusSignIn, "Authentication failed. Invalid email or password.", "error");
         el.btnSubmitSignIn.disabled = false;
         return;
       }
 
+      // Reset failure counter on successful sign-in
+      resetSignInFailures();
+
       // Save Auth Session
       await saveAuth(token, user);
+
+      // Cache verified user credentials locally if authenticated from backend
+      try {
+        const localUsers = await getRegisteredUsers();
+        if (!localUsers[email]) {
+          const salt = Date.now().toString(36) + Math.random().toString(36);
+          const passwordHash = await hashPasswordLocal(password, salt);
+          localUsers[email] = {
+            email,
+            full_name: user.full_name || email.split("@")[0],
+            salt,
+            password_hash: passwordHash,
+            created_at: user.created_at || agreedAt
+          };
+          if (typeof chrome !== "undefined" && chrome.storage && chrome.storage.local) {
+            await new Promise(r => chrome.storage.local.set({ safeinbox_registered_users: localUsers }, r));
+          } else if (typeof localStorage !== "undefined") {
+            localStorage.setItem("safeinbox_registered_users", JSON.stringify(localUsers));
+          }
+        }
+      } catch {}
 
       // Save Terms Consent Audit Record
       await saveTermsConsent({
@@ -407,23 +668,38 @@
       const password = el.inputSignUpPassword.value;
       const confirm = el.inputSignUpConfirm.value;
 
-      if (!email || !password) return;
-      if (password.length < 8) {
-        setStatus(el.statusSignUp, "Password must be at least 8 characters.", "error");
+      const emailErr = validateClientEmail(email);
+      if (emailErr) {
+        setStatus(el.statusSignUp, emailErr, "error");
         return;
       }
+
+      const pwErr = validateClientPassword(password);
+      if (pwErr) {
+        setStatus(el.statusSignUp, pwErr, "error");
+        return;
+      }
+
       if (password !== confirm) {
         setStatus(el.statusSignUp, "Passwords do not match.", "error");
         return;
       }
 
-      // Store pending registration details
-      pendingSignUp = { fullName, email, password };
+      // Check if user already exists locally on this device
+      getRegisteredUsers().then((registeredUsers) => {
+        if (registeredUsers[email]) {
+          setStatus(el.statusSignUp, "An account with this email address already exists. Only 1 account per email is allowed. Please sign in instead.", "error");
+          return;
+        }
 
-      // Transition to Terms & Conditions Review step
-      if (el.authSignedOutView) el.authSignedOutView.style.display = "none";
-      if (el.authTermsReviewView) el.authTermsReviewView.style.display = "block";
-      clearStatus(el.statusTermsReview);
+        // Store pending registration details
+        pendingSignUp = { fullName, email, password };
+
+        // Transition to Terms & Conditions Review step
+        if (el.authSignedOutView) el.authSignedOutView.style.display = "none";
+        if (el.authTermsReviewView) el.authTermsReviewView.style.display = "block";
+        clearStatus(el.statusTermsReview);
+      });
     });
 
     // Decline Terms & Conditions during Sign Up: Refresh immediately
@@ -432,11 +708,58 @@
       window.location.reload();
     });
 
-    // Confirm Terms & Conditions: Create Account and Log Consent Audit Details
+    let otpCountdownInterval = null;
+    let otpResendCooldownInterval = null;
+
+    function stopOtpTimers() {
+      if (otpCountdownInterval) clearInterval(otpCountdownInterval);
+      if (otpResendCooldownInterval) clearInterval(otpResendCooldownInterval);
+      otpCountdownInterval = null;
+      otpResendCooldownInterval = null;
+    }
+
+    function startOtpTimers(expiresInSec = 600, resendCooldownSec = 60) {
+      stopOtpTimers();
+
+      let expireLeft = expiresInSec;
+      function updateExpireDisplay() {
+        if (!el.otpCountdownTimer) return;
+        const mins = Math.floor(expireLeft / 60);
+        const secs = expireLeft % 60;
+        el.otpCountdownTimer.textContent = `${String(mins).padStart(2, "0")}:${String(secs).padStart(2, "0")}`;
+        if (expireLeft <= 0) {
+          clearInterval(otpCountdownInterval);
+          setStatus(el.statusOtpVerification, "Verification code has expired. Please request a new code.", "error");
+        }
+        expireLeft--;
+      }
+      updateExpireDisplay();
+      otpCountdownInterval = setInterval(updateExpireDisplay, 1000);
+
+      let cooldownLeft = resendCooldownSec;
+      function updateCooldownDisplay() {
+        if (!el.btnResendOtp || !el.otpResendCooldown) return;
+        if (cooldownLeft <= 0) {
+          clearInterval(otpResendCooldownInterval);
+          el.btnResendOtp.disabled = false;
+          el.btnResendOtp.style.opacity = "1";
+          el.otpResendCooldown.textContent = "Ready";
+        } else {
+          el.btnResendOtp.disabled = true;
+          el.btnResendOtp.style.opacity = "0.5";
+          el.otpResendCooldown.textContent = `${cooldownLeft}s`;
+          cooldownLeft--;
+        }
+      }
+      updateCooldownDisplay();
+      otpResendCooldownInterval = setInterval(updateCooldownDisplay, 1000);
+    }
+
+    // Confirm Terms & Conditions: Request 6-Digit Email OTP
     el.btnConfirmTermsSignUp?.addEventListener("click", async () => {
       if (!pendingSignUp) return;
 
-      setStatus(el.statusTermsReview, "Creating account & recording consent...", "info");
+      setStatus(el.statusTermsReview, "Sending 6-digit verification code to your email...", "info");
       el.btnConfirmTermsSignUp.disabled = true;
 
       const email = pendingSignUp.email.toLowerCase();
@@ -444,18 +767,9 @@
       const fullName = pendingSignUp.fullName;
       const macAddress = detectHardwareMac();
 
-      let token = null;
-      let user = null;
-      let clientIp = "127.0.0.1 (Local Verified)";
-      let agreedAt = new Date().toISOString();
-
-      // Compute local salt and password hash
-      const salt = Date.now().toString(36) + Math.random().toString(36);
-      const passwordHash = await hashPasswordLocal(password, salt);
-
       try {
         const baseUrl = getBackendUrl();
-        const resp = await fetch(`${baseUrl}/api/v1/auth/signup`, {
+        const resp = await fetch(`${baseUrl}/api/v1/auth/signup/request-otp`, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
@@ -470,8 +784,167 @@
 
         const data = await resp.json().catch(() => ({}));
         if (!resp.ok) {
-          setStatus(el.statusTermsReview, data.detail || `Sign up failed (HTTP ${resp.status})`, "error");
+          setStatus(el.statusTermsReview, data.detail || `Could not request verification code (HTTP ${resp.status})`, "error");
           el.btnConfirmTermsSignUp.disabled = false;
+          return;
+        }
+
+        // Transition to OTP verification screen
+        pendingOtp = { flow: "signup", email, password, fullName };
+        pendingSignUp = pendingOtp;
+
+        if (el.authTermsReviewView) el.authTermsReviewView.style.display = "none";
+        if (el.authOtpVerificationView) el.authOtpVerificationView.style.display = "block";
+        if (el.otpHeaderBadge) el.otpHeaderBadge.textContent = "✉️ Security Verification · Step 2 of 2";
+        if (el.otpTitle) el.otpTitle.textContent = "Verify Your Email Address";
+        if (el.otpSubtitle) {
+          el.otpSubtitle.innerHTML = `A 6-digit verification code has been dispatched to <strong id="otpTargetEmailDisplay" style="color:#FFA586;">${escapeHtml(email)}</strong>. Enter the code below to complete your registration.`;
+        }
+        if (el.btnSubmitVerifyOtp) el.btnSubmitVerifyOtp.textContent = "✓ Verify & Complete Registration";
+        if (el.btnBackFromOtp) el.btnBackFromOtp.textContent = "← Back to Sign Up";
+        if (el.otpTargetEmailDisplay) el.otpTargetEmailDisplay.textContent = email;
+        if (el.otpCodeInput) {
+          el.otpCodeInput.value = "";
+          setTimeout(() => el.otpCodeInput.focus(), 100);
+        }
+        clearStatus(el.statusOtpVerification);
+        startOtpTimers(data.expires_in_seconds || 600, data.resend_cooldown_seconds || 60);
+      } catch (err) {
+        setStatus(
+          el.statusTermsReview,
+          "❌ Unable to connect to server. Account creation requires a server connection to verify email uniqueness across devices. If you already registered on another device, please switch to Sign In.",
+          "error"
+        );
+      } finally {
+        el.btnConfirmTermsSignUp.disabled = false;
+      }
+    });
+
+    // Verify OTP and Complete Registration or Sign In
+    el.btnSubmitVerifyOtp?.addEventListener("click", async () => {
+      const activeState = pendingOtp || pendingSignUp;
+      if (!activeState) return;
+
+      const flow = activeState.flow || "signup";
+      const email = (activeState.email || "").toLowerCase();
+      const otp = el.otpCodeInput ? el.otpCodeInput.value.trim() : "";
+
+      if (!/^\d{6}$/.test(otp)) {
+        setStatus(el.statusOtpVerification, "Please enter the complete 6-digit numeric verification code.", "error");
+        return;
+      }
+
+      // 1. SIGN IN OTP VERIFICATION FLOW
+      if (flow === "signin") {
+        setStatus(el.statusOtpVerification, "Verifying code & authorizing session...", "info");
+        el.btnSubmitVerifyOtp.disabled = true;
+
+        try {
+          const baseUrl = getBackendUrl();
+          const resp = await fetch(`${baseUrl}/api/v1/auth/signin/verify-otp`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ email, otp })
+          });
+
+          const data = await resp.json().catch(() => ({}));
+          if (!resp.ok) {
+            registerSignInFailure();
+            setStatus(el.statusOtpVerification, data.detail || `Sign in verification failed (HTTP ${resp.status})`, "error");
+            el.btnSubmitVerifyOtp.disabled = false;
+            return;
+          }
+
+          const token = data.access_token;
+          const user = data.user;
+          const clientIp = data.terms_consent?.ip_address || "127.0.0.1 (Verified)";
+          const agreedAt = data.terms_consent?.agreed_at || new Date().toISOString();
+          const macAddress = activeState.macAddress || detectHardwareMac();
+
+          // Reset failure counter on successful sign-in
+          resetSignInFailures();
+
+          // Save Auth Session with 15-day expiration
+          await saveAuth(token, user, 1296000);
+
+          // Cache verified user credentials locally if authenticated from backend
+          try {
+            const localUsers = await getRegisteredUsers();
+            if (!localUsers[email] && activeState.password) {
+              const salt = Date.now().toString(36) + Math.random().toString(36);
+              const passwordHash = await hashPasswordLocal(activeState.password, salt);
+              localUsers[email] = {
+                email,
+                full_name: user.full_name || email.split("@")[0],
+                salt,
+                password_hash: passwordHash,
+                created_at: user.created_at || agreedAt
+              };
+              if (typeof chrome !== "undefined" && chrome.storage && chrome.storage.local) {
+                await new Promise(r => chrome.storage.local.set({ safeinbox_registered_users: localUsers }, r));
+              } else if (typeof localStorage !== "undefined") {
+                localStorage.setItem("safeinbox_registered_users", JSON.stringify(localUsers));
+              }
+            }
+          } catch {}
+
+          // Save Terms Consent Audit Record
+          await saveTermsConsent({
+            email,
+            ip_address: clientIp,
+            mac_address: macAddress,
+            terms_version: "1.0.0",
+            agreed_at: agreedAt
+          });
+
+          // Cleanup
+          stopOtpTimers();
+          clearFormInputs();
+          pendingOtp = null;
+          pendingSignUp = null;
+
+          setStatus(el.statusOtpVerification, "✓ Verified! Signed in successfully.", "success");
+          await updateAuthUI();
+          setTimeout(() => {
+            closeModal();
+            el.btnSubmitVerifyOtp.disabled = false;
+          }, 600);
+          return;
+        } catch (networkErr) {
+          setStatus(el.statusOtpVerification, "❌ Network error connecting to server for sign in verification.", "error");
+          el.btnSubmitVerifyOtp.disabled = false;
+          return;
+        }
+      }
+
+      // 2. SIGN UP OTP VERIFICATION FLOW
+      const password = activeState.password;
+      const fullName = activeState.fullName;
+      const macAddress = detectHardwareMac();
+
+      setStatus(el.statusOtpVerification, "Verifying code & activating account...", "info");
+      el.btnSubmitVerifyOtp.disabled = true;
+
+      const salt = Date.now().toString(36) + Math.random().toString(36);
+      const passwordHash = await hashPasswordLocal(password, salt);
+
+      let token = null;
+      let user = null;
+      let clientIp = "127.0.0.1 (Local Verified)";
+      let agreedAt = new Date().toISOString();
+
+      try {
+        const baseUrl = getBackendUrl();
+        const resp = await fetch(`${baseUrl}/api/v1/auth/signup/verify-otp`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ email, otp })
+        });
+
+        const data = await resp.json().catch(() => ({}));
+        if (!resp.ok) {
+          setStatus(el.statusOtpVerification, data.detail || `Verification failed (HTTP ${resp.status})`, "error");
+          el.btnSubmitVerifyOtp.disabled = false;
           return;
         }
 
@@ -482,24 +955,24 @@
           agreedAt = data.terms_consent.agreed_at || agreedAt;
         }
       } catch (err) {
-        // If backend is offline or network fails, support autonomous offline mode gracefully!
-        console.warn("Backend unavailable during registration; creating local authenticated session:", err);
-        token = "local_token_" + Date.now();
-        user = {
-          email,
-          full_name: fullName || email.split("@")[0],
-          is_active: true,
-          created_at: agreedAt
-        };
+        setStatus(el.statusOtpVerification, "❌ Unable to connect to server to verify OTP. Please check your connection.", "error");
+        el.btnSubmitVerifyOtp.disabled = false;
+        return;
       }
 
-      // Always save to registered users store so future logins can verify password!
-      await saveRegisteredUser(email, fullName, passwordHash, salt);
+      // Save to registered users store enforcing 1-email-1-account
+      try {
+        await saveRegisteredUser(email, fullName, passwordHash, salt);
+      } catch (dupErr) {
+        setStatus(el.statusOtpVerification, dupErr.message, "error");
+        el.btnSubmitVerifyOtp.disabled = false;
+        return;
+      }
 
-      // Save Auth Session
-      await saveAuth(token, user);
+      // Save Auth Session with 15-day expiration
+      await saveAuth(token, user, 1296000);
 
-      // Save Terms Consent Audit Record (email, IP, MAC/Device, Version, Timestamp)
+      // Save Terms Consent Audit Record
       const consentData = {
         email,
         ip_address: clientIp,
@@ -509,16 +982,68 @@
       };
       await saveTermsConsent(consentData);
 
-      // Wipe all form inputs so no stale data remains in the login/signup section
+      // Cleanup
+      stopOtpTimers();
       clearFormInputs();
+      pendingOtp = null;
       pendingSignUp = null;
 
-      setStatus(el.statusTermsReview, "✓ Account created & Terms consent recorded!", "success");
+      setStatus(el.statusOtpVerification, "✓ Email verified & account created successfully!", "success");
       await updateAuthUI();
       setTimeout(() => {
         closeModal();
-        el.btnConfirmTermsSignUp.disabled = false;
+        el.btnSubmitVerifyOtp.disabled = false;
       }, 700);
+    });
+
+    // Resend OTP
+    el.btnResendOtp?.addEventListener("click", async () => {
+      const activeState = pendingOtp || pendingSignUp;
+      if (!activeState) return;
+      const email = (activeState.email || "").toLowerCase();
+      const flow = activeState.flow || "signup";
+
+      setStatus(el.statusOtpVerification, "Requesting fresh verification code...", "info");
+      el.btnResendOtp.disabled = true;
+
+      try {
+        const baseUrl = getBackendUrl();
+        const endpoint = flow === "signin"
+          ? `${baseUrl}/api/v1/auth/signin/resend-otp`
+          : `${baseUrl}/api/v1/auth/signup/resend-otp`;
+        const resp = await fetch(endpoint, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ email })
+        });
+
+        const data = await resp.json().catch(() => ({}));
+        if (!resp.ok) {
+          setStatus(el.statusOtpVerification, data.detail || `Could not resend code (HTTP ${resp.status})`, "error");
+          return;
+        }
+
+        setStatus(el.statusOtpVerification, "✓ Fresh verification code dispatched to your email.", "success");
+        startOtpTimers(data.expires_in_seconds || 600, data.resend_cooldown_seconds || 60);
+      } catch (err) {
+        setStatus(el.statusOtpVerification, "Could not contact server to resend code.", "error");
+      }
+    });
+
+    // Back from OTP
+    el.btnBackFromOtp?.addEventListener("click", () => {
+      stopOtpTimers();
+      const flow = pendingOtp ? pendingOtp.flow : "signup";
+      pendingOtp = null;
+      pendingSignUp = null;
+      if (el.authOtpVerificationView) el.authOtpVerificationView.style.display = "none";
+      if (el.authSignedOutView) el.authSignedOutView.style.display = "block";
+      if (flow === "signin") {
+        switchTab("signin");
+      } else {
+        switchTab("signup");
+      }
+      clearStatus(el.statusOtpVerification);
     });
 
     // Sign Out
@@ -530,6 +1055,22 @@
       clearStatus(el.statusTermsReview);
       await updateAuthUI();
       closeModal();
+    });
+
+    // Password visibility toggle buttons
+    document.querySelectorAll(".auth-pw-toggle").forEach((btn) => {
+      btn.addEventListener("click", () => {
+        const targetId = btn.getAttribute("data-target");
+        const input = targetId ? document.getElementById(targetId) : null;
+        if (!input) return;
+        if (input.type === "password") {
+          input.type = "text";
+          btn.textContent = "🙈";
+        } else {
+          input.type = "password";
+          btn.textContent = "👁️";
+        }
+      });
     });
 
 
