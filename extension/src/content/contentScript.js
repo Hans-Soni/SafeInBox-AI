@@ -408,6 +408,41 @@ function getActiveGmailMessage() {
     null;
 }
 
+function renderAuthRequiredBanner(containerEl) {
+  let bannerContainer = containerEl.querySelector(".aegisai-banner-container");
+  if (!bannerContainer) {
+    bannerContainer = document.createElement("div");
+    bannerContainer.className = "aegisai-banner-container";
+    insertBannerAtTop(containerEl, bannerContainer);
+  }
+  bannerContainer.innerHTML = `
+    <div class="aegisai-auto-banner medium aegisai-auth-locked-banner" style="border-left: 4px solid #FFA586; background: rgba(36, 47, 64, 0.95); margin-bottom: 10px;">
+      <div class="aegisai-banner-main" style="display: flex; align-items: center; justify-content: space-between; padding: 10px 14px; gap: 12px;">
+        <div style="display: flex; align-items: center; gap: 10px;">
+          <div class="aegisai-banner-icon" style="font-size: 20px;">🔒</div>
+          <div class="aegisai-banner-info">
+            <div class="aegisai-banner-title" style="display: flex; align-items: center; gap: 8px;">
+              <span style="font-weight: 700; color: #fff; font-size: 13px;">SafeInbox AI — Account Required</span>
+              <span class="aegisai-banner-score-pill" style="background: rgba(255, 165, 134, 0.2); color: #FFA586; border: 1px solid rgba(255, 165, 134, 0.4); font-size: 10px; font-weight: 600; padding: 2px 6px; border-radius: 4px;">Sign In Required</span>
+            </div>
+            <div class="aegisai-banner-summary" style="color: #cbd5e1; font-size: 11.5px; margin-top: 3px;">
+              Email threat protection and hyperlink safety auditing are locked. Please sign in or create an account to activate protection.
+            </div>
+          </div>
+        </div>
+        <button type="button" id="aegisaiLockSignInBtn" style="background: #FFA586; color: #10152F; font-weight: 700; font-size: 11px; padding: 6px 14px; border: none; border-radius: 6px; cursor: pointer; white-space: nowrap; transition: opacity 0.2s ease;">Sign In / Sign Up</button>
+      </div>
+    </div>
+  `;
+
+  const btn = bannerContainer.querySelector("#aegisaiLockSignInBtn");
+  if (btn) {
+    btn.addEventListener("click", () => {
+      chrome.runtime.sendMessage({ type: "OPEN_WELCOME_PAGE" });
+    });
+  }
+}
+
 /**
  * Executes full threat inspection on an open email container:
  * Injects TWO DISTINCT BANNERS:
@@ -418,6 +453,29 @@ async function processSingleEmailContainer(containerEl, clientType) {
   const emailData = extractStructuredEmailFromElement(containerEl, clientType);
   if (!emailData || (!emailData.bodyText && !emailData.subject)) {
     containerEl.dataset.aegisaiScanned = "empty";
+    return;
+  }
+
+  // Strict Authentication Guard: features require an active account
+  const authRes = await new Promise((resolve) => {
+    try {
+      if (typeof chrome !== "undefined" && chrome.storage && chrome.storage.local) {
+        chrome.storage.local.get(["safeinbox_auth"], resolve);
+      } else {
+        resolve({});
+      }
+    } catch {
+      resolve({});
+    }
+  });
+
+  const auth = authRes && authRes.safeinbox_auth;
+  const FIFTEEN_DAYS_MS = 15 * 24 * 60 * 60 * 1000;
+  const isAuthenticated = Boolean(auth && auth.token && auth.user && (!auth.saved_at || (Date.now() - auth.saved_at <= FIFTEEN_DAYS_MS)));
+
+  if (!isAuthenticated) {
+    renderAuthRequiredBanner(containerEl);
+    containerEl.dataset.aegisaiScanned = "locked";
     return;
   }
   const emailUrls = EmailThreatUtils.extractUrlsFromEmail(

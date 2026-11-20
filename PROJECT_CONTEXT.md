@@ -34,6 +34,18 @@
 
 ## Change log
 
+### 2026-11-21 — Authentication Feature Lockout & Header Logo Welcome Routing
+
+- Strict Authentication Feature Lockout (Account-Only Access):
+  - Added Auth Gate Banner (`#authGateBanner`) in the Side Panel, active whenever user is not authenticated.
+  - Locked all interactive features when unauthenticated: URL Scanner, Context Email Scanning, Quick Samples, Current Tab inspection, Active Webpage Inspector, 15-Day Security Digest dispatches/previews, Mail URL Click History clearing, and Safety Feedback.
+  - Unauthenticated feature actions automatically intercept user action, prompt to Sign In or Sign Up, and open the Auth modal.
+  - Webmail In-Page Scanning Guard: In `contentScript.js`, checking `safeinbox_auth` before analyzing emails; renders a locked banner (`SafeInbox AI — Account Required`) and suppresses raw threat inspection until an account is signed in.
+  - Live Threat Simulator Guard: In `welcomeController.js`, verifies active session before running simulation; scrolls to Auth card if unauthenticated.
+- Logo & Project Title Routing:
+  - Made the header `.brand` interactive (`#brandHeaderBtn`, pointer cursor, hover glow, keyboard focusable). Clicking the logo or project title now routes directly to the Welcome & Setup page (`welcome.html`).
+- Validation: 83 frontend Jest tests passing, 10/10 system subsystems passing, 15/15 auth security attack vectors passing.
+
 ### 2026-11-20 — Fix Signup Verification Code HTTP 500 & Auto-Sync DB Schema
 
 - Resolved Signup HTTP 500 on `POST /api/v1/auth/signup/request-otp`:

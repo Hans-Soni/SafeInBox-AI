@@ -114,6 +114,26 @@ body::-webkit-scrollbar-thumb:hover {
   display: flex;
   align-items: center;
   gap: 10px;
+  cursor: pointer;
+  user-select: none;
+  border-radius: 8px;
+  padding: 3px 6px;
+  margin: -3px -6px;
+  transition: var(--transition-fast);
+}
+
+.brand:hover {
+  background: rgba(255, 165, 134, 0.08);
+  transform: translateY(-1px);
+}
+
+.brand:active {
+  transform: translateY(0);
+}
+
+.brand:focus-visible {
+  outline: 2px solid var(--cyan-primary);
+  outline-offset: 2px;
 }
 
 .logo-wrapper {
@@ -2343,3 +2363,104 @@ input[type="text"]:focus, textarea:focus {
   height: 100%;
   border: none;
 }
+
+/* ==========================================================================
+   Auth Gate Banner & Feature Lockout
+   ========================================================================== */
+.auth-gate-banner {
+  background: linear-gradient(135deg, rgba(84, 26, 46, 0.9) 0%, rgba(36, 47, 64, 0.95) 100%);
+  border: 1px solid var(--border-accent);
+  border-radius: 12px;
+  padding: 12px 14px;
+  box-shadow: 0 4px 20px rgba(0, 0, 0, 0.35);
+  animation: fadeIn 0.3s ease;
+  margin-bottom: 2px;
+}
+
+.auth-gate-header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 6px;
+}
+
+.auth-gate-icon {
+  font-size: 16px;
+}
+
+.auth-gate-badge {
+  font-size: 10px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.8px;
+  color: var(--cyan-primary);
+  background: rgba(255, 165, 134, 0.15);
+  padding: 2px 8px;
+  border-radius: 10px;
+  border: 1px solid rgba(255, 165, 134, 0.3);
+}
+
+.auth-gate-title {
+  font-family: 'Outfit', sans-serif;
+  font-size: 14px;
+  font-weight: 700;
+  color: #fff;
+  margin-bottom: 4px;
+}
+
+.auth-gate-desc {
+  font-size: 11.5px;
+  color: var(--text-muted);
+  line-height: 1.45;
+  margin-bottom: 12px;
+}
+
+.auth-gate-actions {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.auth-gate-actions .btn-gate-action {
+  font-size: 11px;
+  padding: 6px 12px;
+}
+
+/* Inline Auth Gate for tab content */
+.auth-gate-inline {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  text-align: center;
+  padding: 24px 16px;
+  background: rgba(20, 27, 45, 0.6);
+  border: 1px dashed var(--border-subtle);
+  border-radius: 10px;
+  gap: 8px;
+}
+
+.auth-gate-inline-icon {
+  font-size: 28px;
+  margin-bottom: 2px;
+}
+
+.auth-gate-inline-title {
+  font-family: 'Outfit', sans-serif;
+  font-size: 15px;
+  font-weight: 700;
+  color: #fff;
+}
+
+.auth-gate-inline-desc {
+  font-size: 12px;
+  color: var(--text-muted);
+  max-width: 280px;
+  line-height: 1.4;
+  margin-bottom: 6px;
+}
+
+.btn-inline-auth {
+  font-size: 12px;
+  padding: 8px 18px;
+}
+

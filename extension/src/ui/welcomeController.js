@@ -1103,10 +1103,25 @@
     });
   }
 
-  function runSimulator() {
+  async function runSimulator() {
     if (!el.simInput || !el.simResultCard) return;
     const url = el.simInput.value.trim();
     if (!url) return;
+
+    const auth = await getStoredAuth();
+    if (!auth || !auth.token || !auth.user) {
+      if (el.statusTermsReview) {
+        setStatus(el.statusTermsReview, "🔒 Please sign in or create an account to use the threat simulator.", "warning");
+      }
+      const authCard = document.getElementById("cardSignInUp");
+      if (authCard) authCard.scrollIntoView({ behavior: "smooth" });
+      el.simResultCard.style.display = "block";
+      el.simResultUrl.textContent = url.replace(/https?:\/\//gi, "hxxps://").replace(/\./g, "[.]");
+      el.simResultBadge.className = "sim-result-badge threat";
+      el.simResultBadge.textContent = "ACCOUNT REQUIRED";
+      el.simFindingsList.innerHTML = `<div class="sim-finding-item" style="color:#FFA586;">🔒 Threat scanning is locked. Please sign in or create an account above to analyze URLs.</div>`;
+      return;
+    }
 
     try {
       if (typeof UrlThreatParser === "undefined" || !UrlThreatParser.analyzeUrl) {

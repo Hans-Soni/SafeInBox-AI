@@ -123,6 +123,13 @@ document.addEventListener("DOMContentLoaded", async () => {
   el.authProfileEmail = document.getElementById("authProfileEmail");
   el.authProfileIndexVal = document.getElementById("authProfileIndexVal");
   el.btnCopyIndexId = document.getElementById("btnCopyIndexId");
+
+  // Brand header button and Auth Gate Banner
+  el.brandHeaderBtn = document.getElementById("brandHeaderBtn");
+  el.authGateBanner = document.getElementById("authGateBanner");
+  el.btnGateSignIn = document.getElementById("btnGateSignIn");
+  el.btnGateSignUp = document.getElementById("btnGateSignUp");
+  el.btnGateWelcome = document.getElementById("btnGateWelcome");
   el.btnSubmitSignOut = document.getElementById("btnSubmitSignOut");
   el.linkOpenWelcome = document.getElementById("linkOpenWelcome");
   el.authPasswordExpiryNotice = document.getElementById("authPasswordExpiryNotice");
@@ -307,6 +314,14 @@ function showEmailScanError(error) {
 }
 
 async function loadEmailScanForActiveTab(email) {
+  if (!isUserAuthenticated()) {
+    if (el.activeEmailNotice) {
+      el.activeEmailNotice.textContent = "🔒 SafeInbox AI threat protection is locked. Please sign in or create an account to scan emails.";
+    }
+    updateAuthGateUI(false);
+    await clearEmailSessionIfCurrent(email);
+    return;
+  }
   const [activeTab] = await chrome.tabs.query({ active: true, currentWindow: true });
   if (!activeTab || activeTab.id !== email.tabId) return;
   const scanKey = JSON.stringify([email.tabId, email.sender, email.subject, email.text, email.urls]);
@@ -332,6 +347,10 @@ async function clearEmailSessionIfCurrent(email) {
 }
 
 async function runEmailScan(text, suppliedUrls, metadata = {}) {
+  if (!isUserAuthenticated()) {
+    requireAuth("Context Scanning");
+    return;
+  }
   const emailText = (text || "").trim();
   if (!emailText) throw new Error("No email content was available to scan.");
   el.emailInput.value = emailText;
@@ -527,11 +546,21 @@ function clearEmailPageMetadata() {
 }
 
 function initPresetButtons() {
-  document.getElementById("useCurrentTabBtn").addEventListener("click", autoFillCurrentTabUrl);
+  document.getElementById("useCurrentTabBtn").addEventListener("click", () => {
+    if (!isUserAuthenticated()) {
+      requireAuth("Current Tab scanning");
+      return;
+    }
+    autoFillCurrentTabUrl();
+  });
 
   // Quick URL chip buttons
   document.querySelectorAll(".chip-btn[data-sample]").forEach(chip => {
     chip.addEventListener("click", () => {
+      if (!isUserAuthenticated()) {
+        requireAuth("Quick Sample testing");
+        return;
+      }
       el.urlInput.value = chip.getAttribute("data-sample");
       el.scanUrlBtn.click();
     });
@@ -580,16 +609,28 @@ Best regards,
 Sarah`;
 
   document.getElementById("loadNetflixPhishBtn").addEventListener("click", () => {
+    if (!isUserAuthenticated()) {
+      requireAuth("Sample Email testing");
+      return;
+    }
     clearEmailPageMetadata();
     el.emailInput.value = NETFLIX_PHISH;
     el.scanEmailBtn.click();
   });
   document.getElementById("loadPayPalPhishBtn").addEventListener("click", () => {
+    if (!isUserAuthenticated()) {
+      requireAuth("Sample Email testing");
+      return;
+    }
     clearEmailPageMetadata();
     el.emailInput.value = PAYPAL_PHISH;
     el.scanEmailBtn.click();
   });
   document.getElementById("loadBenignEmailBtn").addEventListener("click", () => {
+    if (!isUserAuthenticated()) {
+      requireAuth("Sample Email testing");
+      return;
+    }
     clearEmailPageMetadata();
     el.emailInput.value = BENIGN_EMAIL;
     el.scanEmailBtn.click();
@@ -597,6 +638,10 @@ Sarah`;
 
   // Extract from current page — captures sender, receiver, subject, clean body separately
   document.getElementById("extractFromPageBtn").addEventListener("click", () => {
+    if (!isUserAuthenticated()) {
+      requireAuth("Email Extraction");
+      return;
+    }
     if (typeof chrome !== "undefined" && chrome.tabs && chrome.tabs.query) {
       chrome.tabs.query({ active: true, currentWindow: true }, tabs => {
         if (!tabs || !tabs[0]) {
@@ -635,6 +680,10 @@ Sarah`;
 
   // Page links scan
   document.getElementById("scanPageLinksBtn").addEventListener("click", async () => {
+    if (!isUserAuthenticated()) {
+      requireAuth("Active Webpage Inspector");
+      return;
+    }
     // 1. Live Chrome / Edge Extension Mode
     if (typeof chrome !== "undefined" && chrome.tabs && chrome.tabs.query) {
       chrome.tabs.query({ active: true, currentWindow: true }, tabs => {
@@ -703,6 +752,10 @@ Sarah`;
 // =============================================================================
 function initActions() {
   el.scanUrlBtn.addEventListener("click", async () => {
+    if (!isUserAuthenticated()) {
+      requireAuth("the URL Scanner");
+      return;
+    }
     const rawUrl = el.urlInput.value.trim();
     if (!rawUrl) { alert("Please enter or paste a valid URL to analyze."); return; }
     showLoading(true);
@@ -712,6 +765,10 @@ function initActions() {
   });
 
   el.scanEmailBtn.addEventListener("click", async () => {
+    if (!isUserAuthenticated()) {
+      requireAuth("Context Scanning");
+      return;
+    }
     const emailText = el.emailInput.value.trim();
     if (!emailText) { alert("Please paste the email content or message text to analyze."); return; }
     const urls = EmailThreatUtils.extractUrlsFromEmail(emailText);
@@ -740,6 +797,10 @@ function initFeedbackActions() {
 
   if (btnSafe) {
     btnSafe.addEventListener("click", async () => {
+      if (!isUserAuthenticated()) {
+        requireAuth("Safety Feedback");
+        return;
+      }
       if (!lastScanResult) return;
       const targetType = lastScanResult.target_type || "URL";
       const target = targetType === "EMAIL"
@@ -757,6 +818,10 @@ function initFeedbackActions() {
 
   if (btnThreat) {
     btnThreat.addEventListener("click", async () => {
+      if (!isUserAuthenticated()) {
+        requireAuth("Threat Feedback");
+        return;
+      }
       if (!lastScanResult) return;
       const targetType = lastScanResult.target_type || "URL";
       const target = targetType === "EMAIL"
@@ -957,6 +1022,10 @@ function initMailClicksTracker() {
 
   if (el.btnClearMailClicks) {
     el.btnClearMailClicks.addEventListener("click", () => {
+      if (!isUserAuthenticated()) {
+        requireAuth("Mail URL Click History");
+        return;
+      }
       if (typeof chrome !== "undefined" && chrome.storage && chrome.storage.local) {
         chrome.storage.local.set({ webmail_url_clicks: [] }, () => {
           renderMailClicks([]);
@@ -1047,6 +1116,10 @@ function initDigestPanel() {
 
   if (el.btnSendDigestNow) {
     el.btnSendDigestNow.addEventListener("click", () => {
+      if (!isUserAuthenticated()) {
+        requireAuth("15-Day Security Digest");
+        return;
+      }
       if (el.digestStatusMsg) {
         el.digestStatusMsg.style.display = "block";
         el.digestStatusMsg.className = "digest-status-msg";
@@ -1079,6 +1152,10 @@ function initDigestPanel() {
 
   if (el.btnPreviewDigest) {
     el.btnPreviewDigest.addEventListener("click", () => {
+      if (!isUserAuthenticated()) {
+        requireAuth("15-Day Security Digest Preview");
+        return;
+      }
       if (typeof chrome !== "undefined" && chrome.runtime && chrome.runtime.sendMessage) {
         chrome.runtime.sendMessage({ type: "PREVIEW_15DAY_DIGEST" }, (resp) => {
           if (resp && resp.ok && resp.result && resp.result.html) {
@@ -1519,8 +1596,78 @@ function refreshAuthState() {
   }
 }
 
+let currentAuthSession = null;
+
+function isUserAuthenticated() {
+  if (typeof window === "undefined" && typeof chrome === "undefined" && typeof localStorage === "undefined") {
+    return true;
+  }
+  const FIFTEEN_DAYS_MS = 15 * 24 * 60 * 60 * 1000;
+  if (!currentAuthSession || !currentAuthSession.token || !currentAuthSession.user) {
+    return false;
+  }
+  if (currentAuthSession.saved_at && (Date.now() - currentAuthSession.saved_at > FIFTEEN_DAYS_MS)) {
+    return false;
+  }
+  return true;
+}
+
+function requireAuth(featureName = "this feature") {
+  showAuthModal("signin");
+  if (el.authSignInStatus) {
+    setAuthStatus(el.authSignInStatus, `🔒 Please sign in or create an account to use ${featureName}.`, "warning");
+  }
+}
+
+function updateAuthGateUI(isSignedIn) {
+  if (el.authGateBanner) {
+    el.authGateBanner.style.display = isSignedIn ? "none" : "block";
+  }
+
+  const appContainer = document.querySelector(".app-container");
+  if (appContainer) {
+    if (isSignedIn) {
+      appContainer.classList.remove("auth-locked");
+    } else {
+      appContainer.classList.add("auth-locked");
+    }
+  }
+
+  if (!isSignedIn) {
+    if (el.summaryAnalysis && !el.summaryAnalysis.querySelector(".auth-gate-inline")) {
+      el.summaryAnalysis.innerHTML = `
+        <div class="auth-gate-inline">
+          <div class="auth-gate-inline-icon">🔒</div>
+          <div class="auth-gate-inline-title">Account Required</div>
+          <div class="auth-gate-inline-desc">All threat scanning, URL checks, and security digests require an active user account. Sign in or register to get started.</div>
+          <button class="primary-btn btn-inline-auth" id="btnInlineAuthSignIn" type="button">Sign In / Sign Up</button>
+        </div>
+      `;
+      const inlineBtn = document.getElementById("btnInlineAuthSignIn");
+      if (inlineBtn) {
+        inlineBtn.addEventListener("click", () => showAuthModal("signin"));
+      }
+    }
+    if (el.summaryTextScore) el.summaryTextScore.textContent = "--";
+    if (el.summaryUrlScore) el.summaryUrlScore.textContent = "--";
+    if (el.summaryCombinedScore) el.summaryCombinedScore.textContent = "--";
+    if (el.activeEmailNotice) {
+      el.activeEmailNotice.textContent = "🔒 SafeInbox AI threat protection is locked. Sign in to enable email and link scanning.";
+    }
+  } else {
+    if (el.summaryAnalysis && el.summaryAnalysis.querySelector(".auth-gate-inline")) {
+      el.summaryAnalysis.innerHTML = "Open an email in Gmail, Outlook, or Yahoo Mail to see its analysis here.";
+    }
+    if (el.activeEmailNotice && el.activeEmailNotice.textContent.includes("locked")) {
+      el.activeEmailNotice.textContent = "Click the extension icon to open the panel. It updates automatically as you switch emails.";
+    }
+  }
+}
+
 function renderAuthUI(auth) {
   const isSignedIn = Boolean(auth && auth.token && auth.user);
+  currentAuthSession = isSignedIn ? auth : null;
+  updateAuthGateUI(isSignedIn);
   const user = isSignedIn ? auth.user : null;
 
   if (isSignedIn && user) {
@@ -1580,6 +1727,48 @@ function generateClientUserIndexId(email) {
 }
 
 function initAuthManager() {
+  // Brand header button navigates to Welcome & Guide page
+  const brandBtn = el.brandHeaderBtn || document.getElementById("brandHeaderBtn") || document.querySelector(".brand");
+  if (brandBtn) {
+    const openWelcome = () => {
+      const welcomeUrl = (typeof chrome !== "undefined" && chrome.runtime && chrome.runtime.getURL)
+        ? chrome.runtime.getURL("welcome.html")
+        : "welcome.html";
+      if (typeof chrome !== "undefined" && chrome.tabs && chrome.tabs.create) {
+        chrome.tabs.create({ url: welcomeUrl });
+      } else if (typeof window !== "undefined") {
+        window.open(welcomeUrl, "_blank");
+      }
+    };
+    brandBtn.addEventListener("click", openWelcome);
+    brandBtn.addEventListener("keydown", (e) => {
+      if (e.key === "Enter" || e.key === " ") {
+        e.preventDefault();
+        openWelcome();
+      }
+    });
+  }
+
+  // Auth gate buttons
+  if (el.btnGateSignIn) {
+    el.btnGateSignIn.addEventListener("click", () => showAuthModal("signin"));
+  }
+  if (el.btnGateSignUp) {
+    el.btnGateSignUp.addEventListener("click", () => showAuthModal("signup"));
+  }
+  if (el.btnGateWelcome) {
+    el.btnGateWelcome.addEventListener("click", () => {
+      const welcomeUrl = (typeof chrome !== "undefined" && chrome.runtime && chrome.runtime.getURL)
+        ? chrome.runtime.getURL("welcome.html")
+        : "welcome.html";
+      if (typeof chrome !== "undefined" && chrome.tabs && chrome.tabs.create) {
+        chrome.tabs.create({ url: welcomeUrl });
+      } else if (typeof window !== "undefined") {
+        window.open(welcomeUrl, "_blank");
+      }
+    });
+  }
+
   if (!el.authModalBackdrop) return;
 
   // Copy Index ID button

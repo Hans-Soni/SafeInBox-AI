@@ -16,7 +16,7 @@
   <div class="app-container">
     <!-- Top Header -->
     <header class="header">
-      <div class="brand">
+      <div class="brand" id="brandHeaderBtn" role="button" tabindex="0" title="Open SafeInbox AI Welcome &amp; Guide Page">
         <div class="logo-wrapper">
           <img src="icons/icon48.png" alt="SafeInbox AI Shield" class="logo-img">
           <div class="logo-pulse"></div>
@@ -38,6 +38,25 @@
         </button>
       </div>
     </header>
+
+    <!-- Authentication Gate Banner (shown when user is not signed in) -->
+    <div class="auth-gate-banner" id="authGateBanner" style="display: none;">
+      <div class="auth-gate-card">
+        <div class="auth-gate-header">
+          <span class="auth-gate-icon">🔒</span>
+          <span class="auth-gate-badge">Authentication Required</span>
+        </div>
+        <div class="auth-gate-title">Sign In to Unlock SafeInbox AI</div>
+        <div class="auth-gate-desc">
+          Intelligent email protection, URL threat analysis, and 15-day security digests are reserved for registered accounts. Please sign in or create a free account to use all features.
+        </div>
+        <div class="auth-gate-actions">
+          <button class="primary-btn btn-gate-action" id="btnGateSignIn" type="button">Sign In</button>
+          <button class="secondary-btn btn-gate-action" id="btnGateSignUp" type="button">Create Account</button>
+          <button class="text-link-btn btn-gate-action" id="btnGateWelcome" type="button">Open Setup Guide</button>
+        </div>
+      </div>
+    </div>
     <div class="active-email-notice" id="activeEmailNotice" role="status" aria-live="polite">
       Click the extension icon to open the panel. It updates automatically as you switch emails.
     </div>

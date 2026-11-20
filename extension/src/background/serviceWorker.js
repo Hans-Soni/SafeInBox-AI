@@ -303,6 +303,15 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     return true;
   }
 
+  if (message && message.type === "OPEN_WELCOME_PAGE") {
+    const welcomeUrl = chrome.runtime.getURL("welcome.html");
+    if (chrome.tabs && chrome.tabs.create) {
+      chrome.tabs.create({ url: welcomeUrl });
+    }
+    sendResponse({ ok: true });
+    return true;
+  }
+
   if (message && message.type === "FLUSH_PENDING_SYNC") {
     flushAllPendingCloudData().then(
       () => sendResponse({ ok: true }),
