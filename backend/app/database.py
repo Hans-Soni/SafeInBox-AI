@@ -71,6 +71,10 @@ async def init_db() -> None:
                 "CREATE INDEX IF NOT EXISTS ix_scan_audit_logs_user_email ON scan_audit_logs (user_email)",
                 "ALTER TABLE scan_audit_logs ADD COLUMN IF NOT EXISTS user_index_id VARCHAR(64)",
                 "CREATE INDEX IF NOT EXISTS ix_scan_audit_logs_user_index_id ON scan_audit_logs (user_index_id)",
+                "ALTER TABLE url_clicks ADD COLUMN IF NOT EXISTS is_encrypted BOOLEAN DEFAULT FALSE",
+                "ALTER TABLE url_clicks ADD COLUMN IF NOT EXISTS encrypted_payload TEXT",
+                "ALTER TABLE security_digest_logs ADD COLUMN IF NOT EXISTS is_encrypted BOOLEAN DEFAULT FALSE",
+                "ALTER TABLE security_digest_logs ADD COLUMN IF NOT EXISTS encrypted_payload TEXT",
             ]
             for stmt in statements:
                 try:

@@ -143,6 +143,8 @@ async def get_digest_history(
             threat_count=log.threat_count,
             click_count=log.click_count,
             dispatch_status=log.dispatch_status,
+            is_encrypted=log.is_encrypted or False,
+            encrypted_payload=log.encrypted_payload,
             created_at=log.created_at.isoformat()
         )
         for log in logs

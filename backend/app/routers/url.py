@@ -133,6 +133,8 @@ async def record_click(
         risk_level=str(payload.risk_level),
         proceeded=bool(payload.proceeded),
         source=(payload.source or "email_body_link")[:64],
+        is_encrypted=bool(payload.is_encrypted),
+        encrypted_payload=payload.encrypted_payload,
     )
     db.add(click_entry)
     await db.commit()
@@ -147,6 +149,8 @@ async def record_click(
         proceeded=click_entry.proceeded,
         user_email=click_entry.user_email,
         user_index_id=click_entry.user_index_id,
+        is_encrypted=click_entry.is_encrypted,
+        encrypted_payload=click_entry.encrypted_payload,
         recorded=True
     )
 
@@ -177,6 +181,8 @@ async def get_clicks(
             proceeded=entry.proceeded,
             user_email=entry.user_email,
             user_index_id=entry.user_index_id,
+            is_encrypted=entry.is_encrypted,
+            encrypted_payload=entry.encrypted_payload,
             recorded=True
         )
         for entry in entries

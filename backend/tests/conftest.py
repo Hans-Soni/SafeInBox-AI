@@ -1,5 +1,9 @@
 """Shared pytest configuration and test fixtures for SafeInbox AI Backend."""
 
+import os
+os.environ["DATABASE_URL"] = "sqlite+aiosqlite:///./test_safeinbox.db"
+os.environ["FORCE_HTTPS"] = "false"
+
 import pytest
 from sqlalchemy import delete
 

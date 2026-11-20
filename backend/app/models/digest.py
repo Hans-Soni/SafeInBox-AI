@@ -2,6 +2,7 @@
 
 from datetime import datetime, timezone
 from sqlalchemy import (
+    Boolean,
     Column,
     DateTime,
     Integer,
@@ -32,5 +33,7 @@ class SecurityDigestLog(Base):
     click_count = Column(Integer, default=0, nullable=False)
     dispatch_status = Column(String(32), default="sent", nullable=False)  # "sent", "simulated", "failed"
     delivery_note = Column(Text, nullable=True)
+    is_encrypted = Column(Boolean, default=False, nullable=False)
+    encrypted_payload = Column(Text, nullable=True)
     created_at = Column(DateTime(timezone=True), default=utcnow, nullable=False)
 

@@ -84,5 +84,7 @@ class UrlClickLog(Base):
     risk_level = Column(String(32), nullable=False, default="AUDITED")
     proceeded = Column(Boolean, nullable=False, default=True)
     source = Column(String(64), nullable=False, default="email_body_link")
+    is_encrypted = Column(Boolean, nullable=False, default=False)
+    encrypted_payload = Column(Text, nullable=True)
     clicked_at = Column(DateTime(timezone=True), default=utcnow, nullable=False)
 

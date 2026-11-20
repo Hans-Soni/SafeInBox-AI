@@ -36,6 +36,8 @@ class UrlClickCreate(BaseModel):
     source: str = "email_body_link"
     user_email: str | None = None
     user_index_id: str | None = None
+    is_encrypted: bool = False
+    encrypted_payload: str | None = None
 
 
 class UrlClickResponse(BaseModel):
@@ -48,6 +50,8 @@ class UrlClickResponse(BaseModel):
     proceeded: bool
     user_email: str | None = None
     user_index_id: str | None = None
+    is_encrypted: bool = False
+    encrypted_payload: str | None = None
     recorded: bool = True
 
 

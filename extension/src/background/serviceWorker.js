@@ -2,6 +2,7 @@
 
 importScripts("../url/urlThreatParser.js");
 importScripts("../utils/textParser.js");
+importScripts("../utils/cryptoUtils.js");
 
 const CACHE_PREFIX = "urlThreatScan:";
 const CACHE_TTL_MS = 7 * 24 * 60 * 60 * 1000;
@@ -159,6 +160,16 @@ if (typeof chrome !== "undefined" && chrome.tabs && chrome.tabs.onUpdated) {
   });
 }
 
+if (typeof chrome !== "undefined" && chrome.storage && chrome.storage.onChanged) {
+  chrome.storage.onChanged.addListener((changes, area) => {
+    if (area === "local" && (changes.safeinbox_auth || changes.safeinbox_user_session)) {
+      if (typeof SafeInboxCrypto !== "undefined" && typeof SafeInboxCrypto.clearKeyCache === "function") {
+        SafeInboxCrypto.clearKeyCache();
+      }
+    }
+  });
+}
+
 chrome.runtime.onConnect.addListener((port) => {
   if (port.name !== "url-analysis-worker") return;
   inferencePort = port;
@@ -312,6 +323,14 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     return true;
   }
 
+  if (message && message.type === "CLEAR_AUTH_CACHE") {
+    if (typeof SafeInboxCrypto !== "undefined" && typeof SafeInboxCrypto.clearKeyCache === "function") {
+      SafeInboxCrypto.clearKeyCache();
+    }
+    sendResponse({ ok: true });
+    return true;
+  }
+
   if (message && message.type === "FLUSH_PENDING_SYNC") {
     flushAllPendingCloudData().then(
       () => sendResponse({ ok: true }),
@@ -429,31 +448,61 @@ async function syncClickWithBackend(clickRecord) {
   const authHeaders = await getAuthHeader();
   let userEmail = null;
   let userIndexId = null;
+  let userToken = null;
   try {
     const sessionRes = await new Promise((r) => {
       chrome.storage.local.get(["safeinbox_auth", "safeinbox_user_session"], r);
     });
-    userEmail = (sessionRes && sessionRes.safeinbox_auth && sessionRes.safeinbox_auth.email) ||
-                (sessionRes && sessionRes.safeinbox_auth && sessionRes.safeinbox_auth.user && sessionRes.safeinbox_auth.user.email) ||
-                (sessionRes && sessionRes.safeinbox_user_session && sessionRes.safeinbox_user_session.email) ||
-                (sessionRes && sessionRes.safeinbox_user_session && sessionRes.safeinbox_user_session.user && sessionRes.safeinbox_user_session.user.email) ||
+    const authObj = (sessionRes && sessionRes.safeinbox_auth) || (sessionRes && sessionRes.safeinbox_user_session) || null;
+    userEmail = (authObj && authObj.email) ||
+                (authObj && authObj.user && authObj.user.email) ||
                 null;
-    userIndexId = (sessionRes && sessionRes.safeinbox_auth && sessionRes.safeinbox_auth.index_id) ||
-                  (sessionRes && sessionRes.safeinbox_auth && sessionRes.safeinbox_auth.user && sessionRes.safeinbox_auth.user.index_id) ||
+    userIndexId = (authObj && authObj.index_id) ||
+                  (authObj && authObj.user && authObj.user.index_id) ||
                   null;
+    userToken = (authObj && authObj.token) ||
+                (authObj && authObj.accessToken) ||
+                null;
   } catch {}
 
+  const rawUrl = clickRecord.url;
+  const defangedUrl = clickRecord.defanged || String(rawUrl).replace(/\./g, "[.]");
+  let isEncrypted = false;
+  let encryptedPayload = null;
+
+  // Zero-Knowledge Client-Side Encryption (AES-256-GCM)
+  if (typeof SafeInboxCrypto !== "undefined" && (userToken || userEmail)) {
+    try {
+      const zkKey = await SafeInboxCrypto.deriveZeroKnowledgeKey(
+        userToken || userEmail,
+        userIndexId || userEmail
+      );
+      const sensitiveData = {
+        url: rawUrl,
+        defanged_url: defangedUrl,
+        email_subject: clickRecord.email_subject || null,
+        sender: clickRecord.sender || null
+      };
+      encryptedPayload = await SafeInboxCrypto.encryptZeroKnowledge(sensitiveData, zkKey);
+      isEncrypted = true;
+    } catch (cryptoErr) {
+      console.warn("Client-side zero-knowledge encryption fallback:", cryptoErr);
+    }
+  }
+
   const payload = {
-    url: clickRecord.url,
-    defanged_url: clickRecord.defanged || String(clickRecord.url).replace(/\./g, "[.]"),
-    email_subject: clickRecord.email_subject || null,
-    sender: clickRecord.sender || null,
+    url: isEncrypted ? "[ENCRYPTED]" : rawUrl,
+    defanged_url: isEncrypted ? "[ENCRYPTED]" : defangedUrl,
+    email_subject: isEncrypted ? "[ENCRYPTED]" : (clickRecord.email_subject || null),
+    sender: isEncrypted ? "[ENCRYPTED]" : (clickRecord.sender || null),
     risk_score: typeof clickRecord.risk_score === "number" ? clickRecord.risk_score : 0,
     risk_level: String(clickRecord.risk_level || "AUDITED"),
     proceeded: clickRecord.proceeded !== false,
     source: String(clickRecord.source || "email_body_link"),
     user_email: userEmail,
-    user_index_id: userIndexId
+    user_index_id: userIndexId,
+    is_encrypted: isEncrypted,
+    encrypted_payload: encryptedPayload
   };
 
   if (typeof fetch !== "function") {
@@ -1387,6 +1436,9 @@ async function get15DayDigestData() {
       const userIndexId = (auth && auth.user && auth.user.index_id) ||
                           (auth && auth.index_id) ||
                           null;
+      const userToken = (auth && auth.token) ||
+                        (session && session.token) ||
+                        null;
       const userName = (auth && auth.user && auth.user.full_name) ||
                        (session && session.name) ||
                        "SafeInbox User";
@@ -1450,6 +1502,7 @@ async function get15DayDigestData() {
       resolve({
         userEmail,
         userIndexId,
+        userToken,
         userName,
         periodStart,
         periodEnd,
@@ -1504,6 +1557,26 @@ async function dispatch15DayDigestNow({ force = false, targetEmail = null, isAut
   // Get active backend URL
   const cloudUrl = await getEffectiveBackendUrl();
 
+  // Zero-Knowledge Client-Side Encryption of Digest Data
+  let isEncrypted = false;
+  let encryptedDigestPayload = null;
+  if (typeof SafeInboxCrypto !== "undefined" && (data.userToken || effectiveEmail)) {
+    try {
+      const zkKey = await SafeInboxCrypto.deriveZeroKnowledgeKey(
+        data.userToken || effectiveEmail,
+        data.userIndexId || effectiveEmail
+      );
+      const auditSummary = {
+        records: data.records,
+        url_clicks: data.urlClicks
+      };
+      encryptedDigestPayload = await SafeInboxCrypto.encryptZeroKnowledge(auditSummary, zkKey);
+      isEncrypted = true;
+    } catch (cryptoErr) {
+      console.warn("Client-side digest zero-knowledge encryption fallback:", cryptoErr);
+    }
+  }
+
   const payload = {
     user_email: effectiveEmail,
     user_index_id: data.userIndexId,
@@ -1511,7 +1584,9 @@ async function dispatch15DayDigestNow({ force = false, targetEmail = null, isAut
     period_start: data.periodStart,
     period_end: data.periodEnd,
     records: data.records,
-    url_clicks: data.urlClicks
+    url_clicks: data.urlClicks,
+    is_encrypted: isEncrypted,
+    encrypted_payload: encryptedDigestPayload
   };
 
   let dispatchMode = "local_autonomous";

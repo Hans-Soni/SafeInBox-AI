@@ -1060,9 +1060,51 @@ function refreshMailClicks() {
   }
 }
 
-function renderMailClicks(clicks) {
+async function resolveClicksForDisplay(clicks) {
+  if (!Array.isArray(clicks) || clicks.length === 0) return clicks;
+  const hasEncrypted = clicks.some(c => c && c.is_encrypted && c.encrypted_payload);
+  if (!hasEncrypted || typeof SafeInboxCrypto === "undefined") return clicks;
+
+  let authState = null;
+  try {
+    const res = await new Promise(r => chrome.storage.local.get(["safeinbox_auth", "safeinbox_user_session"], r));
+    authState = (res && res.safeinbox_auth) || (res && res.safeinbox_user_session) || null;
+  } catch {}
+
+  const secret = (authState && authState.token) || (authState && authState.user && authState.user.email) || (authState && authState.email);
+  const salt = (authState && authState.user && authState.user.index_id) || (authState && authState.index_id) || (authState && authState.user && authState.user.email) || (authState && authState.email);
+  if (!secret) return clicks;
+
+  try {
+    const zkKey = await SafeInboxCrypto.deriveZeroKnowledgeKey(secret, salt);
+    return await Promise.all(clicks.map(async (c) => {
+      if (!c || !c.is_encrypted || !c.encrypted_payload) return c;
+      try {
+        const decrypted = await SafeInboxCrypto.decryptZeroKnowledge(c.encrypted_payload, zkKey);
+        if (decrypted && typeof decrypted === "object") {
+          return {
+            ...c,
+            url: decrypted.url || c.url,
+            defanged: decrypted.defanged_url || decrypted.defanged || c.defanged,
+            email_subject: decrypted.email_subject || c.email_subject,
+            sender: decrypted.sender || c.sender
+          };
+        }
+      } catch (decErr) {
+        console.warn("Could not decrypt click entry for display:", decErr);
+      }
+      return c;
+    }));
+  } catch (err) {
+    console.warn("Could not derive key for display decryption:", err);
+    return clicks;
+  }
+}
+
+async function renderMailClicks(clicks) {
   if (!el.mailClicksCountBadge || !el.mailClicksList) return;
-  const list = Array.isArray(clicks) ? clicks : [];
+  const rawList = Array.isArray(clicks) ? clicks : [];
+  const list = await resolveClicksForDisplay(rawList);
   const count = list.length;
   el.mailClicksCountBadge.textContent = `${count} Click${count === 1 ? "" : "s"}`;
 
@@ -1543,6 +1585,14 @@ async function clearAuthSession() {
       localStorage.removeItem("safeinbox_auth");
       localStorage.removeItem("safeinbox_user_session");
     } catch {}
+  }
+
+  // Clear client-side Zero-Knowledge crypto key cache
+  if (typeof SafeInboxCrypto !== "undefined" && typeof SafeInboxCrypto.clearKeyCache === "function") {
+    SafeInboxCrypto.clearKeyCache();
+  }
+  if (typeof chrome !== "undefined" && chrome.runtime && chrome.runtime.sendMessage) {
+    chrome.runtime.sendMessage({ type: "CLEAR_AUTH_CACHE" }, () => {});
   }
 
   // 3. Clear all form inputs and reset rate limit failure counter

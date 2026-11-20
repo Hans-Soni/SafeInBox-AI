@@ -46,6 +46,8 @@ class DigestSendRequest(BaseModel):
     period_end: str = Field(..., description="End of 15-day time-slab window")
     records: List[EmailRecordItem] = Field(default_factory=list, description="All email threat reports in 15 days")
     url_clicks: List[UrlClickItem] = Field(default_factory=list, description="All webmail URL clicks in 15 days")
+    is_encrypted: bool = False
+    encrypted_payload: Optional[str] = None
 
     @field_validator("user_email")
     @classmethod
@@ -94,4 +96,6 @@ class DigestHistoryItem(BaseModel):
     threat_count: int
     click_count: int
     dispatch_status: str
+    is_encrypted: bool = False
+    encrypted_payload: Optional[str] = None
     created_at: str

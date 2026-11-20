@@ -497,7 +497,9 @@ async def dispatch_15_day_digest(
             threat_count=threat_count,
             click_count=click_count,
             dispatch_status=status,
-            delivery_note=note
+            delivery_note=note,
+            is_encrypted=bool(getattr(request, "is_encrypted", False)),
+            encrypted_payload=getattr(request, "encrypted_payload", None)
         )
         db.add(log_entry)
         await db.commit()
