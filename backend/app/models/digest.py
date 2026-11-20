@@ -24,6 +24,7 @@ class SecurityDigestLog(Base):
 
     id = Column(Integer, primary_key=True, index=True)
     user_email = Column(String(255), index=True, nullable=False)
+    user_index_id = Column(String(64), index=True, nullable=True)
     period_start = Column(String(64), nullable=False)
     period_end = Column(String(64), nullable=False)
     total_emails = Column(Integer, default=0, nullable=False)

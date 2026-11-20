@@ -60,6 +60,7 @@
 
     profileName: document.getElementById("profileName"),
     profileEmail: document.getElementById("profileEmail"),
+    profileIndexVal: document.getElementById("profileIndexVal"),
     btnSignOut: document.getElementById("btnSignOut"),
 
     // Simulator
@@ -445,6 +446,17 @@
       if (el.authSignedInView) el.authSignedInView.style.display = "block";
       if (el.profileName) el.profileName.textContent = auth.user.full_name || "Analyst";
       if (el.profileEmail) el.profileEmail.textContent = auth.user.email;
+      if (el.profileIndexVal) {
+        let fallbackIdx = "SAFE-IDX-ANONYMOUS";
+        if (auth.user.email) {
+          let h = 0;
+          const s = auth.user.email.trim().toLowerCase();
+          for (let i = 0; i < s.length; i++) { h = ((h << 5) - h) + s.charCodeAt(i); h |= 0; }
+          const hex = Math.abs(h).toString(16).padStart(8, "0").toUpperCase();
+          fallbackIdx = `SAFE-IDX-${hex}${hex.slice(0, 4)}`;
+        }
+        el.profileIndexVal.textContent = auth.user.index_id || fallbackIdx;
+      }
     } else {
       if (el.userNavPill) el.userNavPill.style.display = "none";
       if (el.btnNavSignIn) el.btnNavSignIn.style.display = "inline-block";

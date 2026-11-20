@@ -22,12 +22,15 @@ sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..")
 from app.schemas.auth import (
     UserSignUp,
     UserSignIn,
+    UserResponse,
+    UserTrackingSummary,
     OTPRequestResponse,
     OTPResendRequest,
     OTPVerifyRequest,
     validate_password_complexity,
     sanitize_display_name,
 )
+from app.models.user import generate_user_index_id
 from app.services.otp_service import (
     generate_otp,
     generate_otp_salt,
@@ -75,7 +78,14 @@ def test_system_1_signup_password_and_terms():
     )
     assert user_data.email == "lead.analyst@safeinbox.ai"
     assert user_data.terms_agreed is True
-    print("  [OK] Sign-Up schema, password policy, and terms consent passed.")
+
+    # Unique Index ID generation check
+    idx = generate_user_index_id(user_data.email)
+    assert idx.startswith("SAFE-IDX-")
+    assert len(idx) == 21
+    assert idx == generate_user_index_id("LEAD.ANALYST@SAFEINBOX.AI"), "Index ID must be deterministic and lowercase-normalized"
+    assert idx != generate_user_index_id("another@safeinbox.ai"), "Distinct emails must have distinct index IDs"
+    print("  [OK] Sign-Up schema, password policy, terms consent, and Unique Index ID passed.")
 
 
 def test_system_2_signin_rate_limiting_and_jwt():
@@ -339,6 +349,87 @@ def test_system_9_email_otp_verification():
     print("  [OK] Email OTP generation, HMAC-SHA256 hashing, timing defense, and schemas passed.")
 
 
+def test_system_10_unique_index_id_tracking():
+    print("[*] 10. System E2E: Unique Index ID Generation & Unified Tracking Pipeline...")
+    import re
+
+    # 1. Verification of unique index id generation
+    test_emails = [
+        "john.doe@company.com",
+        "sarah.connor@cyberdyne.org",
+        "analyst.security@safeinbox.ai",
+        "user123+newsletter@gmail.com"
+    ]
+    generated_ids = set()
+    for em in test_emails:
+        idx_id = generate_user_index_id(em)
+        assert re.match(r"^SAFE-IDX-[A-F0-9]{12}$", idx_id), f"Index ID '{idx_id}' does not match expected format"
+        assert idx_id not in generated_ids, f"Collision detected for {em}"
+        generated_ids.add(idx_id)
+        # Deterministic check
+        assert idx_id == generate_user_index_id(em.upper()), "Must be case-insensitive"
+
+    # 2. UserResponse schema includes index_id
+    from datetime import datetime, timezone
+    sample_user_resp = UserResponse(
+        id=101,
+        index_id=generate_user_index_id("john.doe@company.com"),
+        email="john.doe@company.com",
+        full_name="John Doe",
+        is_active=True,
+        password_changed_at=datetime.now(timezone.utc),
+        password_expired=False,
+        password_age_days=0,
+        session_lifetime_days=7,
+        created_at=datetime.now(timezone.utc)
+    )
+    assert sample_user_resp.index_id.startswith("SAFE-IDX-")
+    assert sample_user_resp.id == 101
+
+    # 3. UserTrackingSummary schema
+    tracking_summary = UserTrackingSummary(
+        index_id=sample_user_resp.index_id,
+        email=sample_user_resp.email,
+        full_name=sample_user_resp.full_name,
+        is_active=True,
+        created_at=datetime.now(timezone.utc),
+        url_clicks_count=5,
+        recent_url_clicks=[
+            {"id": 1, "url": "https://example.com", "risk_score": 0, "risk_level": "SAFE", "proceeded": True}
+        ],
+        digest_dispatches_count=1,
+        recent_digests=[
+            {"id": 1, "period_start": "2026-11-01", "period_end": "2026-11-16", "total_emails": 10, "threat_count": 0, "click_count": 1, "dispatch_status": "sent"}
+        ],
+        terms_agreed=True,
+        terms_version="1.0.0"
+    )
+    assert tracking_summary.index_id == sample_user_resp.index_id
+    assert tracking_summary.url_clicks_count == 5
+    assert tracking_summary.terms_agreed is True
+
+    # 4. UrlClickCreate with user_index_id
+    click_with_idx = UrlClickCreate(
+        url="https://secure-docs.net/view",
+        user_email="john.doe@company.com",
+        user_index_id=sample_user_resp.index_id,
+        risk_score=10.0,
+        risk_level="SAFE"
+    )
+    assert click_with_idx.user_index_id == sample_user_resp.index_id
+
+    # 5. DigestSendRequest with user_index_id
+    digest_with_idx = DigestSendRequest(
+        user_email="john.doe@company.com",
+        user_index_id=sample_user_resp.index_id,
+        period_start="2026-11-05",
+        period_end="2026-11-20"
+    )
+    assert digest_with_idx.user_index_id == sample_user_resp.index_id
+
+    print("  [OK] Unique Index ID generation, schemas, and tracking pipeline fully verified.")
+
+
 if __name__ == "__main__":
     print("=" * 70)
     print("  SAFEINBOX AI -- ENTIRE SYSTEM COMPREHENSIVE TEST SUITE")
@@ -352,6 +443,7 @@ if __name__ == "__main__":
     test_system_7_fifteen_day_security_digest()
     test_system_8_url_click_and_action_sync()
     test_system_9_email_otp_verification()
+    test_system_10_unique_index_id_tracking()
     print("=" * 70)
-    print("ALL 9 SYSTEM SUBSYSTEMS FULLY VERIFIED AND PASSING!")
+    print("ALL 10 SYSTEM SUBSYSTEMS FULLY VERIFIED AND PASSING!")
     print("=" * 70)

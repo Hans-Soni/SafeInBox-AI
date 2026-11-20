@@ -195,6 +195,8 @@ test("15-Day Security Digest: HTML generator produces all required fields", () =
   assert.ok(html.includes("hxxp://fake-bank[.]org/pay[.]php"), "Must contain defanged clicked URL");
   assert.ok(html.includes("Risk: 90/100"), "Must contain click risk score");
   assert.ok(html.includes("FINANCIAL_SCAM"), "Must contain threat vector");
+  assert.ok(html.includes("Index ID:"), "Must contain Index ID in user info bar");
+  assert.ok(html.includes("SAFE-IDX-"), "Must contain SAFE-IDX- prefix in user info bar");
 });
 
 test("Mail URL Click History: records ALL URLs (safe or threat) and unwraps redirects", async () => {

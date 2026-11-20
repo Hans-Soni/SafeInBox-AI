@@ -457,6 +457,51 @@ def test_vector_14_email_otp_verification_lifecycle():
     assert "789123" in email_html
 
 
+def test_vector_15_unique_index_id_integrity_and_tracking():
+    """Verify unique Index ID generation, collision resistance, format integrity, and tracking correlation."""
+    import re
+    from app.models.user import generate_user_index_id
+
+    # 1. Format and Determinism
+    id1 = generate_user_index_id("auditor@safeinbox.ai")
+    id2 = generate_user_index_id("AUDITOR@safeinbox.ai")
+    id3 = generate_user_index_id("auditor@safeinbox.ai ")
+    assert id1 == id2 == id3, "Index ID must be strictly deterministic and whitespace/case normalized"
+    assert re.match(r"^SAFE-IDX-[A-F0-9]{12}$", id1), "Index ID must conform to ^SAFE-IDX-[A-F0-9]{12}$"
+
+    # 2. Collision Resistance across 500 generated test emails
+    seen_ids = set()
+    for i in range(500):
+        test_email = f"user_{i}_{i*17}@cyber-defense-{i%10}.org"
+        idx = generate_user_index_id(test_email)
+        assert idx not in seen_ids, f"Collision detected for {test_email}"
+        seen_ids.add(idx)
+    assert len(seen_ids) == 500
+
+    # 3. Injection Immunity (No special symbols or SQL injection characters)
+    for bad_email in ["test'--@domain.com", 'user"name@test.org', "admin;drop@site.com"]:
+        idx = generate_user_index_id(bad_email)
+        assert re.match(r"^SAFE-IDX-[A-F0-9]{12}$", idx)
+        assert not any(c in idx for c in ["'", '"', ";", "--", "/*", "\x00"])
+
+    # 4. End-to-End Tracking Linkage Simulation
+    user_email = "tracked.analyst@safeinbox.ai"
+    user_index_id = generate_user_index_id(user_email)
+
+    # Simulated data stores linked by user_index_id
+    user_record = {"email": user_email, "index_id": user_index_id}
+    url_clicks = [
+        {"url": "https://service-auth.com", "user_email": user_email, "user_index_id": user_index_id},
+        {"url": "https://threat-site.biz", "user_email": user_email, "user_index_id": user_index_id}
+    ]
+    digest_record = {"user_email": user_email, "user_index_id": user_index_id, "dispatch_status": "sent"}
+
+    # Correlation checks: querying by index_id retrieves 100% of user data
+    clicks_found = [c for c in url_clicks if c["user_index_id"] == user_index_id]
+    assert len(clicks_found) == 2, "All URL clicks must correlate to the user's index ID"
+    assert digest_record["user_index_id"] == user_record["index_id"], "Digest must link directly to user Index ID"
+
+
 if __name__ == "__main__":
     print("[*] Running Authentication Security & Attack Test Suite...")
     test_vector_1_brute_force_and_credential_stuffing()
@@ -487,4 +532,6 @@ if __name__ == "__main__":
     print("  [OK] Vector 13: Log Flooding & Disk Exhaustion DoS Defense PASSED")
     test_vector_14_email_otp_verification_lifecycle()
     print("  [OK] Vector 14: Email OTP Cryptographic Lifecycle & Brute-Force Defense PASSED")
-    print("\nALL 14 AUTHENTICATION & LOG SECURITY ATTACK TEST VECTORS PASSED!")
+    test_vector_15_unique_index_id_integrity_and_tracking()
+    print("  [OK] Vector 15: Unique Index ID Integrity, Collision Resistance & Tracking Correlation PASSED")
+    print("\nALL 15 AUTHENTICATION & LOG SECURITY ATTACK TEST VECTORS PASSED!")

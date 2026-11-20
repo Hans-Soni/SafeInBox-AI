@@ -121,6 +121,8 @@ document.addEventListener("DOMContentLoaded", async () => {
 
   el.authProfileName = document.getElementById("authProfileName");
   el.authProfileEmail = document.getElementById("authProfileEmail");
+  el.authProfileIndexVal = document.getElementById("authProfileIndexVal");
+  el.btnCopyIndexId = document.getElementById("btnCopyIndexId");
   el.btnSubmitSignOut = document.getElementById("btnSubmitSignOut");
   el.linkOpenWelcome = document.getElementById("linkOpenWelcome");
   el.authPasswordExpiryNotice = document.getElementById("authPasswordExpiryNotice");
@@ -1535,6 +1537,8 @@ function renderAuthUI(auth) {
     if (el.authSignedInView) el.authSignedInView.style.display = "block";
     if (el.authProfileName) el.authProfileName.textContent = user.full_name || "Analyst";
     if (el.authProfileEmail) el.authProfileEmail.textContent = user.email;
+    const resolvedIndexId = user.index_id || generateClientUserIndexId(user.email);
+    if (el.authProfileIndexVal) el.authProfileIndexVal.textContent = resolvedIndexId;
 
     // 30-day password rotation check
     const now = Date.now();
@@ -1563,8 +1567,35 @@ function renderAuthUI(auth) {
   }
 }
 
+function generateClientUserIndexId(email) {
+  if (!email) return "SAFE-IDX-ANONYMOUS";
+  let hash = 0;
+  const str = email.trim().toLowerCase();
+  for (let i = 0; i < str.length; i++) {
+    hash = ((hash << 5) - hash) + str.charCodeAt(i);
+    hash |= 0;
+  }
+  const hex = Math.abs(hash).toString(16).padStart(8, "0").toUpperCase();
+  return `SAFE-IDX-${hex}${hex.slice(0, 4)}`;
+}
+
 function initAuthManager() {
   if (!el.authModalBackdrop) return;
+
+  // Copy Index ID button
+  if (el.btnCopyIndexId && el.authProfileIndexVal) {
+    el.btnCopyIndexId.addEventListener("click", () => {
+      const idx = el.authProfileIndexVal.textContent || "";
+      if (!idx || idx === "--") return;
+      if (navigator.clipboard && navigator.clipboard.writeText) {
+        navigator.clipboard.writeText(idx).then(() => {
+          const original = el.btnCopyIndexId.textContent;
+          el.btnCopyIndexId.textContent = "✓";
+          setTimeout(() => { el.btnCopyIndexId.textContent = original; }, 1500);
+        }).catch(() => {});
+      }
+    });
+  }
 
   // Header pill opens modal
   if (el.accountPillBtn) {

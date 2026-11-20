@@ -35,6 +35,7 @@ class UrlClickCreate(BaseModel):
     proceeded: bool = True
     source: str = "email_body_link"
     user_email: str | None = None
+    user_index_id: str | None = None
 
 
 class UrlClickResponse(BaseModel):
@@ -45,6 +46,8 @@ class UrlClickResponse(BaseModel):
     risk_score: float
     risk_level: str
     proceeded: bool
+    user_email: str | None = None
+    user_index_id: str | None = None
     recorded: bool = True
 
 
@@ -55,6 +58,8 @@ class ScanAuditCreate(BaseModel):
     risk_score: int = Field(default=0, ge=0, le=100)
     risk_level: str = Field(default="SAFE", max_length=32)
     threat_vectors: list[str] = Field(default_factory=list)
+    user_email: str | None = None
+    user_index_id: str | None = None
 
 
 class ScanAuditResponse(BaseModel):
@@ -64,4 +69,6 @@ class ScanAuditResponse(BaseModel):
     content_hash: str
     risk_score: int
     risk_level: str
+    user_email: str | None = None
+    user_index_id: str | None = None
     recorded: bool = True

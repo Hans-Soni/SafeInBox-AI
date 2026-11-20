@@ -2050,6 +2050,48 @@ input[type="text"]:focus, textarea:focus {
   font-family: monospace;
 }
 
+.auth-profile-index-id {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  font-size: 10px;
+  font-family: 'JetBrains Mono', Consolas, monospace;
+  background: rgba(255, 165, 134, 0.08);
+  border: 1px solid rgba(255, 165, 134, 0.22);
+  border-radius: 4px;
+  padding: 2px 6px;
+  margin-top: 3px;
+  max-width: 100%;
+}
+
+.auth-idx-label {
+  color: #FFA586;
+  font-weight: 700;
+  font-size: 9.5px;
+}
+
+.auth-idx-val {
+  color: #f8fafc;
+  font-weight: 600;
+  letter-spacing: 0.5px;
+}
+
+.auth-idx-copy-btn {
+  background: none;
+  border: none;
+  cursor: pointer;
+  padding: 0 2px;
+  font-size: 10px;
+  color: #94a3b8;
+  line-height: 1;
+  transition: transform 0.15s ease, color 0.15s ease;
+}
+
+.auth-idx-copy-btn:hover {
+  color: #FFA586;
+  transform: scale(1.15);
+}
+
 .auth-profile-badge {
   display: inline-flex;
   align-items: center;

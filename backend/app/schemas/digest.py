@@ -40,6 +40,7 @@ class EmailRecordItem(BaseModel):
 class DigestSendRequest(BaseModel):
     """Payload to dispatch 15-day security record to specific user email."""
     user_email: str = Field(..., description="Target user email address")
+    user_index_id: Optional[str] = Field(default=None, description="Unique index ID for user/email tracking")
     user_name: Optional[str] = "SafeInbox AI User"
     period_start: str = Field(..., description="Start of 15-day time-slab window")
     period_end: str = Field(..., description="End of 15-day time-slab window")
@@ -60,6 +61,7 @@ class DigestSendResponse(BaseModel):
     success: bool
     message: str
     recipient: str
+    user_index_id: Optional[str] = None
     period: str
     total_emails: int
     threats_detected: int
@@ -85,6 +87,7 @@ class DigestHistoryItem(BaseModel):
     """Historical digest log record."""
     id: int
     user_email: str
+    user_index_id: Optional[str] = None
     period_start: str
     period_end: str
     total_emails: int

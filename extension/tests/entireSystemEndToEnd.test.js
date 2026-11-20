@@ -147,6 +147,7 @@ test("Entire System Test: All buttons, tabs, toggles, and modals exist and are p
     "btnSubmitSignIn",
     "btnSubmitSignUp",
     "btnSubmitSignOut",
+    "btnCopyIndexId",
     "digestPreviewClose"
   ];
 
@@ -156,6 +157,7 @@ test("Entire System Test: All buttons, tabs, toggles, and modals exist and are p
 
   // Cloud Threat Intel accordion panel was removed per design requirements
   assert.ok(!sidepanelHtml.includes('id="cloudPanel"'), "Sidepanel should not contain id='cloudPanel'");
+  assert.ok(sidepanelHtml.includes('id="authProfileIndexVal"'), "Sidepanel must display Index ID via #authProfileIndexVal");
 
   // Welcome Page Core Buttons
   const welcomeButtons = [
@@ -177,6 +179,7 @@ test("Entire System Test: All buttons, tabs, toggles, and modals exist and are p
   for (const btnId of welcomeButtons) {
     assert.ok(welcomeHtml.includes(`id="${btnId}"`), `Welcome page must contain button #${btnId}`);
   }
+  assert.ok(welcomeHtml.includes('id="profileIndexVal"'), "Welcome page must display Index ID via #profileIndexVal");
 
   // Password visibility toggle buttons
   assert.ok(sidepanelHtml.includes('class="auth-pw-toggle"'), "Sidepanel must include auth-pw-toggle");

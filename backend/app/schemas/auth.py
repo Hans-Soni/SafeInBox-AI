@@ -219,6 +219,7 @@ class TermsConsentResponse(BaseModel):
 
     id: int
     user_id: int | None = None
+    user_index_id: str | None = None
     email: str
     ip_address: str
     mac_address: str | None = None
@@ -232,6 +233,7 @@ class UserResponse(BaseModel):
     """Public user profile response with security policy metadata."""
 
     id: int
+    index_id: str
     email: str
     full_name: str | None = None
     is_active: bool
@@ -242,6 +244,22 @@ class UserResponse(BaseModel):
     created_at: datetime
 
     model_config = ConfigDict(from_attributes=True)
+
+
+class UserTrackingSummary(BaseModel):
+    """Aggregated tracking summary for an email / index ID."""
+
+    index_id: str
+    email: str
+    full_name: str | None = None
+    is_active: bool
+    created_at: datetime
+    url_clicks_count: int = 0
+    recent_url_clicks: list[dict] = Field(default_factory=list)
+    digest_dispatches_count: int = 0
+    recent_digests: list[dict] = Field(default_factory=list)
+    terms_agreed: bool = False
+    terms_version: str | None = None
 
 
 class TokenResponse(BaseModel):

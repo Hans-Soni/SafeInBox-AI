@@ -7,7 +7,9 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.database import get_db
-from app.models.user import EmailOTPVerification, TermsConsent, User
+from app.models.digest import SecurityDigestLog
+from app.models.threat import ScanAuditLog, ThreatURL, UrlClickLog
+from app.models.user import EmailOTPVerification, TermsConsent, User, generate_user_index_id
 from app.schemas.auth import (
     OTPRequestResponse,
     OTPResendRequest,
@@ -19,6 +21,7 @@ from app.schemas.auth import (
     UserResponse,
     UserSignIn,
     UserSignUp,
+    UserTrackingSummary,
     validate_password_complexity
 )
 from app.services.auth_service import (
@@ -65,12 +68,14 @@ def get_client_ip(request: Request) -> str:
 
 
 def build_user_response(user: User) -> UserResponse:
-    """Build UserResponse with 30-day password expiry and 7-day session lifetime metadata."""
+    """Build UserResponse with unique Index ID, 30-day password expiry and 7-day session lifetime metadata."""
     now = utcnow()
     pwd_changed = user.password_changed_at or user.created_at or now
     age_days = (now - pwd_changed).days
+    resolved_idx = getattr(user, "index_id", None) or generate_user_index_id(user.email)
     return UserResponse(
         id=user.id,
+        index_id=resolved_idx,
         email=user.email,
         full_name=user.full_name,
         is_active=user.is_active,
@@ -89,12 +94,15 @@ async def record_terms_consent(
     mac_address: str | None,
     terms_version: str,
     user_id: int | None = None,
+    user_index_id: str | None = None,
     user_agent: str | None = None
 ) -> TermsConsent:
-    """Persist an immutable Terms & Conditions consent audit record."""
+    """Persist an immutable Terms & Conditions consent audit record with user index ID."""
     resolved_mac = mac_address or "N/A (Browser Sandbox Restricted: W3C Anti-Fingerprinting Policy)"
+    resolved_idx = user_index_id or generate_user_index_id(email)
     consent = TermsConsent(
         user_id=user_id,
+        user_index_id=resolved_idx,
         email=email,
         ip_address=ip_address,
         mac_address=resolved_mac,
@@ -168,8 +176,10 @@ async def sign_up(
         )
 
     now = utcnow()
+    index_id = generate_user_index_id(payload.email)
     # Hash password using scrypt with random cryptographic 16-byte salt
     new_user = User(
+        index_id=index_id,
         email=payload.email,
         hashed_password=hash_password(payload.password),
         full_name=payload.full_name,
@@ -214,6 +224,7 @@ async def sign_up(
             mac_address=payload.mac_address,
             terms_version=payload.terms_version,
             user_id=new_user.id,
+            user_index_id=new_user.index_id,
             user_agent=ua
         )
         consent_resp = TermsConsentResponse.model_validate(consent_record)
@@ -224,11 +235,11 @@ async def sign_up(
         email=new_user.email,
         ip_address=ip,
         user_agent=ua,
-        details={"user_id": new_user.id}
+        details={"user_id": new_user.id, "index_id": new_user.index_id}
     )
 
     # Issue access token with unique jti identifier and 7-day weekly expiry
-    token = create_access_token({"sub": new_user.email, "user_id": new_user.id})
+    token = create_access_token({"sub": new_user.email, "user_id": new_user.id, "index_id": new_user.index_id})
     return TokenResponse(
         access_token=token,
         token_type="bearer",
@@ -556,7 +567,9 @@ async def verify_signup_otp(
 
     # OTP is valid! Proceed to create user account
     pending_data = otp_record.pending_data or {}
+    index_id = generate_user_index_id(otp_record.email)
     new_user = User(
+        index_id=index_id,
         email=otp_record.email,
         hashed_password=pending_data.get("hashed_password"),
         full_name=pending_data.get("full_name"),
@@ -600,6 +613,7 @@ async def verify_signup_otp(
             mac_address=pending_data.get("mac_address"),
             terms_version=pending_data.get("terms_version", "1.0.0"),
             user_id=new_user.id,
+            user_index_id=new_user.index_id,
             user_agent=ua
         )
         consent_resp = TermsConsentResponse.model_validate(consent_record)
@@ -613,11 +627,11 @@ async def verify_signup_otp(
         email=new_user.email,
         ip_address=ip,
         user_agent=ua,
-        details={"user_id": new_user.id}
+        details={"user_id": new_user.id, "index_id": new_user.index_id}
     )
 
     # Issue access token with 7-day lifetime
-    token = create_access_token({"sub": new_user.email, "user_id": new_user.id})
+    token = create_access_token({"sub": new_user.email, "user_id": new_user.id, "index_id": new_user.index_id})
     return TokenResponse(
         access_token=token,
         token_type="bearer",
@@ -877,7 +891,8 @@ async def verify_signin_otp(
         details={"user_id": user.id, "password_expired": is_pwd_expired, "password_age_days": pwd_age_days}
     )
 
-    token = create_access_token({"sub": user.email, "user_id": user.id})
+    user_idx = getattr(user, "index_id", None) or generate_user_index_id(user.email)
+    token = create_access_token({"sub": user.email, "user_id": user.id, "index_id": user_idx})
     return TokenResponse(
         access_token=token,
         token_type="bearer",
@@ -1099,7 +1114,8 @@ async def sign_in(
     )
 
     # Issue access token with unique jti identifier and 15-day expiry
-    token = create_access_token({"sub": user.email, "user_id": user.id})
+    user_idx = getattr(user, "index_id", None) or generate_user_index_id(user.email)
+    token = create_access_token({"sub": user.email, "user_id": user.id, "index_id": user_idx})
     return TokenResponse(
         access_token=token,
         token_type="bearer",
@@ -1549,3 +1565,138 @@ async def get_my_profile(
 ) -> UserResponse:
     """Retrieve profile of the currently authenticated user with security policy status."""
     return build_user_response(current_user)
+
+
+@router.get("/user-by-index/{index_id}", response_model=UserResponse)
+async def get_user_by_index_id(
+    index_id: str,
+    db: AsyncSession = Depends(get_db)
+) -> UserResponse:
+    """Retrieve public user profile by unique Index ID."""
+    clean_idx = index_id.strip()
+    result = await db.execute(select(User).where(User.index_id == clean_idx))
+    user = result.scalar_one_or_none()
+    if not user:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"No user found with Index ID '{clean_idx}'."
+        )
+    return build_user_response(user)
+
+
+@router.get("/track/{identifier}", response_model=UserTrackingSummary)
+async def track_user_data(
+    identifier: str,
+    db: AsyncSession = Depends(get_db)
+) -> UserTrackingSummary:
+    """
+    Unified tracking endpoint for user email or unique Index ID.
+    Aggregates profile metadata, URL click history, security digest dispatches, and terms consent.
+    """
+    from sqlalchemy import or_
+
+    clean_id = identifier.strip()
+    is_index = clean_id.upper().startswith("SAFE-IDX-")
+    
+    if is_index:
+        user_query = await db.execute(select(User).where(User.index_id == clean_id.upper()))
+    else:
+        user_query = await db.execute(select(User).where(User.email == clean_id.lower()))
+    user = user_query.scalar_one_or_none()
+
+    target_email = (user.email if user else (clean_id.lower() if "@" in clean_id else None))
+    target_index_id = (user.index_id if user else (clean_id.upper() if is_index else (generate_user_index_id(target_email) if target_email else None)))
+
+    if not user and not target_email and not target_index_id:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"No tracking data found for identifier '{clean_id}'."
+        )
+
+    # 1. Query URL clicks for this user (by email or index_id)
+    click_filters = []
+    if target_email:
+        click_filters.append(UrlClickLog.user_email == target_email)
+    if target_index_id:
+        click_filters.append(UrlClickLog.user_index_id == target_index_id)
+    
+    click_rows = []
+    if click_filters:
+        clicks_query = await db.execute(
+            select(UrlClickLog)
+            .where(or_(*click_filters))
+            .order_by(UrlClickLog.id.desc())
+            .limit(20)
+        )
+        click_rows = clicks_query.scalars().all()
+
+    # 2. Query Digest logs for this user
+    digest_filters = []
+    if target_email:
+        digest_filters.append(SecurityDigestLog.user_email == target_email)
+    if target_index_id:
+        digest_filters.append(SecurityDigestLog.user_index_id == target_index_id)
+
+    digest_rows = []
+    if digest_filters:
+        digests_query = await db.execute(
+            select(SecurityDigestLog)
+            .where(or_(*digest_filters))
+            .order_by(SecurityDigestLog.id.desc())
+            .limit(10)
+        )
+        digest_rows = digests_query.scalars().all()
+
+    # 3. Query Terms consent
+    consent_filters = []
+    if target_email:
+        consent_filters.append(TermsConsent.email == target_email)
+    if target_index_id:
+        consent_filters.append(TermsConsent.user_index_id == target_index_id)
+
+    consent = None
+    if consent_filters:
+        consent_query = await db.execute(
+            select(TermsConsent)
+            .where(or_(*consent_filters))
+            .order_by(TermsConsent.id.desc())
+            .limit(1)
+        )
+        consent = consent_query.scalar_one_or_none()
+
+    return UserTrackingSummary(
+        index_id=target_index_id or (generate_user_index_id(target_email) if target_email else ""),
+        email=target_email or (user.email if user else ""),
+        full_name=user.full_name if user else None,
+        is_active=user.is_active if user else (consent is not None or len(click_rows) > 0),
+        created_at=user.created_at if user else utcnow(),
+        url_clicks_count=len(click_rows),
+        recent_url_clicks=[
+            {
+                "id": c.id,
+                "url": c.url,
+                "defanged_url": c.defanged_url,
+                "risk_score": c.risk_score,
+                "risk_level": c.risk_level,
+                "proceeded": c.proceeded,
+                "clicked_at": c.clicked_at.isoformat() if c.clicked_at else ""
+            }
+            for c in click_rows
+        ],
+        digest_dispatches_count=len(digest_rows),
+        recent_digests=[
+            {
+                "id": d.id,
+                "period_start": d.period_start,
+                "period_end": d.period_end,
+                "total_emails": d.total_emails,
+                "threat_count": d.threat_count,
+                "click_count": d.click_count,
+                "dispatch_status": d.dispatch_status,
+                "created_at": d.created_at.isoformat() if d.created_at else ""
+            }
+            for d in digest_rows
+        ],
+        terms_agreed=consent is not None,
+        terms_version=consent.terms_version if consent else None
+    )

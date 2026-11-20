@@ -7,6 +7,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.database import get_db
 from app.models.digest import SecurityDigestLog
+from app.models.user import generate_user_index_id
 from app.schemas.digest import (
     DigestSendRequest,
     DigestSendResponse,
@@ -53,11 +54,13 @@ async def send_15_day_digest(
         for c in r.clicked_urls:
             click_urls_set.add(c.url)
     total_clicks = max(len(click_urls_set), len(payload.url_clicks))
+    resolved_idx = payload.user_index_id or generate_user_index_id(payload.user_email)
 
     return DigestSendResponse(
         success=success,
         message=message,
         recipient=payload.user_email,
+        user_index_id=resolved_idx,
         period=f"{payload.period_start} to {payload.period_end}",
         total_emails=len(payload.records),
         threats_detected=total_threats,
@@ -114,17 +117,18 @@ async def purge_expired_history(
 
 @router.get("/history", response_model=List[DigestHistoryItem], summary="Get past digest logs for user")
 async def get_digest_history(
-    user_email: str,
+    user_email: Optional[str] = None,
+    user_index_id: Optional[str] = None,
     limit: int = 20,
     db: AsyncSession = Depends(get_db)
 ):
-    """Retrieve historical 15-day digest dispatch logs for a user email."""
-    stmt = (
-        select(SecurityDigestLog)
-        .where(SecurityDigestLog.user_email == user_email.strip().lower())
-        .order_by(SecurityDigestLog.created_at.desc())
-        .limit(limit)
-    )
+    """Retrieve historical 15-day digest dispatch logs for a user email or index ID."""
+    stmt = select(SecurityDigestLog)
+    if user_index_id:
+        stmt = stmt.where(SecurityDigestLog.user_index_id == user_index_id.strip())
+    elif user_email:
+        stmt = stmt.where(SecurityDigestLog.user_email == user_email.strip().lower())
+    stmt = stmt.order_by(SecurityDigestLog.created_at.desc()).limit(limit)
     result = await db.execute(stmt)
     logs = result.scalars().all()
 
@@ -132,6 +136,7 @@ async def get_digest_history(
         DigestHistoryItem(
             id=log.id,
             user_email=log.user_email,
+            user_index_id=log.user_index_id,
             period_start=log.period_start,
             period_end=log.period_end,
             total_emails=log.total_emails,

@@ -1,6 +1,7 @@
 """SQLAlchemy ORM model for user accounts and authentication."""
 
 from datetime import datetime, timezone
+import hashlib
 from sqlalchemy import (
     Boolean,
     Column,
@@ -19,12 +20,23 @@ def utcnow() -> datetime:
     return datetime.now(timezone.utc)
 
 
+def generate_user_index_id(email: str) -> str:
+    """
+    Generate a deterministic, unique, professional index ID for an email account.
+    Format: SAFE-IDX-<12_HEX_DIGITS> (e.g. SAFE-IDX-4F9A7C12D83E)
+    """
+    clean = (email or "").strip().lower()
+    digest = hashlib.sha256(clean.encode("utf-8")).hexdigest()[:12].upper()
+    return f"SAFE-IDX-{digest}"
+
+
 class User(Base):
     """User account entity for extension and cloud intelligence authentication."""
 
     __tablename__ = "users"
 
     id = Column(Integer, primary_key=True, index=True)
+    index_id = Column(String(64), unique=True, index=True, nullable=False)
     email = Column(String(255), unique=True, index=True, nullable=False)
     hashed_password = Column(String(255), nullable=False)
     full_name = Column(String(255), nullable=True)
@@ -45,6 +57,7 @@ class TermsConsent(Base):
 
     id = Column(Integer, primary_key=True, index=True)
     user_id = Column(Integer, ForeignKey("users.id"), nullable=True, index=True)
+    user_index_id = Column(String(64), index=True, nullable=True)
     email = Column(String(255), index=True, nullable=False)
     ip_address = Column(String(64), nullable=False)
     mac_address = Column(String(128), nullable=True)

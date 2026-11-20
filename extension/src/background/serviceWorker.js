@@ -419,6 +419,7 @@ async function syncClickWithBackend(clickRecord) {
 
   const authHeaders = await getAuthHeader();
   let userEmail = null;
+  let userIndexId = null;
   try {
     const sessionRes = await new Promise((r) => {
       chrome.storage.local.get(["safeinbox_auth", "safeinbox_user_session"], r);
@@ -428,6 +429,9 @@ async function syncClickWithBackend(clickRecord) {
                 (sessionRes && sessionRes.safeinbox_user_session && sessionRes.safeinbox_user_session.email) ||
                 (sessionRes && sessionRes.safeinbox_user_session && sessionRes.safeinbox_user_session.user && sessionRes.safeinbox_user_session.user.email) ||
                 null;
+    userIndexId = (sessionRes && sessionRes.safeinbox_auth && sessionRes.safeinbox_auth.index_id) ||
+                  (sessionRes && sessionRes.safeinbox_auth && sessionRes.safeinbox_auth.user && sessionRes.safeinbox_auth.user.index_id) ||
+                  null;
   } catch {}
 
   const payload = {
@@ -439,7 +443,8 @@ async function syncClickWithBackend(clickRecord) {
     risk_level: String(clickRecord.risk_level || "AUDITED"),
     proceeded: clickRecord.proceeded !== false,
     source: String(clickRecord.source || "email_body_link"),
-    user_email: userEmail
+    user_email: userEmail,
+    user_index_id: userIndexId
   };
 
   if (typeof fetch !== "function") {
@@ -519,6 +524,20 @@ async function syncAuditWithBackend(auditRecord) {
   if (!backendUrl || typeof fetch !== "function") return false;
 
   const authHeaders = await getAuthHeader();
+  let userEmail = null;
+  let userIndexId = null;
+  try {
+    const sessionRes = await new Promise((r) => {
+      chrome.storage.local.get(["safeinbox_auth", "safeinbox_user_session"], r);
+    });
+    userEmail = (sessionRes && sessionRes.safeinbox_auth && sessionRes.safeinbox_auth.email) ||
+                (sessionRes && sessionRes.safeinbox_auth && sessionRes.safeinbox_auth.user && sessionRes.safeinbox_auth.user.email) ||
+                null;
+    userIndexId = (sessionRes && sessionRes.safeinbox_auth && sessionRes.safeinbox_auth.index_id) ||
+                  (sessionRes && sessionRes.safeinbox_auth && sessionRes.safeinbox_auth.user && sessionRes.safeinbox_auth.user.index_id) ||
+                  null;
+  } catch {}
+
   const rawId = `${auditRecord.sender || ""}|${auditRecord.subject || ""}|${Date.now()}`;
   const contentHash = await hashUrl(rawId);
 
@@ -527,7 +546,9 @@ async function syncAuditWithBackend(auditRecord) {
     content_hash: contentHash,
     risk_score: Math.round(auditRecord.risk_score || 0),
     risk_level: String(auditRecord.risk_level || "SAFE"),
-    threat_vectors: Array.isArray(auditRecord.threat_vectors) ? auditRecord.threat_vectors : []
+    threat_vectors: Array.isArray(auditRecord.threat_vectors) ? auditRecord.threat_vectors : [],
+    user_email: userEmail,
+    user_index_id: userIndexId
   };
 
   try {
@@ -1042,9 +1063,10 @@ function escapeHtmlDigest(str) {
     .replace(/'/g, "&#39;");
 }
 
-function generateLocalDigestHtml(userEmail, userName, periodStart, periodEnd, records, urlClicks = []) {
+function generateLocalDigestHtml(userEmail, userName, periodStart, periodEnd, records, urlClicks = [], userIndexId = null) {
   const safeEmail = escapeHtmlDigest(userEmail || "user@safeinbox.local");
   const safeName = escapeHtmlDigest(userName || "SafeInbox User");
+  const safeIndexId = escapeHtmlDigest(userIndexId || ("SAFE-IDX-" + (safeEmail.replace(/[^a-zA-Z0-9]/g, "").slice(0, 12).toUpperCase().padEnd(12, "0"))));
   const totalEmails = records.length;
   const threats = records.filter(r => (r.composite_risk >= 35) || ["HIGH", "CRITICAL", "MEDIUM"].includes(r.risk_level));
   const threatCount = threats.length;
@@ -1248,6 +1270,7 @@ function generateLocalDigestHtml(userEmail, userName, periodStart, periodEnd, re
           <tr>
             <td style="background:#0f172a;border-bottom:1px solid #1e293b;padding:12px 24px;font-size:13px;color:#94a3b8;">
               Prepared exclusively for: <strong style="color:#f8fafc;">${safeName}</strong> (&lt;${safeEmail}&gt;)
+              &nbsp;&bull;&nbsp; Index ID: <strong style="color:#FFA586;font-family:monospace;">${safeIndexId}</strong>
             </td>
           </tr>
           <tr>
@@ -1352,6 +1375,9 @@ async function get15DayDigestData() {
                         (session && session.email) ||
                         (auth && auth.email) ||
                         "guest@safeinbox.local";
+      const userIndexId = (auth && auth.user && auth.user.index_id) ||
+                          (auth && auth.index_id) ||
+                          null;
       const userName = (auth && auth.user && auth.user.full_name) ||
                        (session && session.name) ||
                        "SafeInbox User";
@@ -1414,6 +1440,7 @@ async function get15DayDigestData() {
 
       resolve({
         userEmail,
+        userIndexId,
         userName,
         periodStart,
         periodEnd,
@@ -1437,7 +1464,8 @@ async function preview15DayDigest(targetEmail = null) {
     data.periodStart,
     data.periodEnd,
     data.records,
-    data.urlClicks
+    data.urlClicks,
+    data.userIndexId
   );
   return {
     userEmail: effectiveEmail,
@@ -1469,6 +1497,7 @@ async function dispatch15DayDigestNow({ force = false, targetEmail = null, isAut
 
   const payload = {
     user_email: effectiveEmail,
+    user_index_id: data.userIndexId,
     user_name: data.userName,
     period_start: data.periodStart,
     period_end: data.periodEnd,
@@ -1510,7 +1539,8 @@ async function dispatch15DayDigestNow({ force = false, targetEmail = null, isAut
       data.periodStart,
       data.periodEnd,
       data.records,
-      data.urlClicks
+      data.urlClicks,
+      data.userIndexId
     );
   }
 

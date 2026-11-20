@@ -34,6 +34,36 @@
 
 ## Change log
 
+### 2026-11-20 — Unique Index ID Creation on Signup & Email Data/URL Tracking
+
+- Unique Index ID Generation & Database Indexing:
+  - Created deterministic, uppercase, unique index ID generator `generate_user_index_id(email)` in `backend/app/models/user.py` producing standard `SAFE-IDX-[A-F0-9]{12}` identifiers derived from SHA-256 of the normalized email.
+  - Added unique column and index `index_id` (`String(64), unique=True, index=True, nullable=False`) to the `users` table.
+  - Linked `user_index_id` across database persistence models:
+    - `url_clicks.user_index_id` (`String(64), index=True`) in `backend/app/models/threat.py`.
+    - `security_digest_logs.user_index_id` (`String(64), index=True`) in `backend/app/models/digest.py`.
+    - `terms_consents.user_index_id` (`String(64), index=True`) in `backend/app/models/user.py`.
+    - `scan_audit_logs.user_email` and `scan_audit_logs.user_index_id` in `backend/app/models/threat.py`.
+  - Authored Alembic database migration `backend/alembic/versions/g7b8c9d0e1f2_add_user_index_id_tracking.py` (revising `f6a7b8c9d0e1`).
+- Signup & Auth Pipeline Integration (`backend/app/routers/auth.py`):
+  - On user registration in `POST /api/v1/auth/signup` and `POST /api/v1/auth/signup/verify-otp`, automatically creates and assigns `index_id` to `new_user`.
+  - Added `index_id` to `UserResponse`, JWT Bearer token claims, and `build_user_response()`.
+  - Created dedicated endpoint `GET /api/v1/auth/user-by-index/{index_id}` for public user profile retrieval by Index ID.
+  - Created unified tracking endpoint `GET /api/v1/auth/track/{identifier}` accepting an email or `SAFE-IDX-...` index ID, returning aggregated account status, recent URL clicks, digest dispatches, and terms consent.
+- URL Clicks & Digest Sync Tracking:
+  - Updated `POST /api/v1/scan/click` and `GET /api/v1/scan/clicks` in `backend/app/routers/url.py` to record, return, and filter by `user_index_id`.
+  - Updated `POST /api/v1/digest/send` and `GET /api/v1/digest/history` in `backend/app/routers/digest.py` to store and filter by `user_index_id`.
+  - Updated HTML digest template generator in `backend/app/services/digest_service.py` to render the user's `Index ID: SAFE-IDX-XXXXXXXXXXXX` in the report header.
+- Extension Side Panel & Welcome UI Integration:
+  - Added `#authProfileIndexId`, `#authProfileIndexVal`, and `#btnCopyIndexId` to `extension/sidepanel.html` with styling in `extension/src/ui/sidepanel.css`.
+  - Updated `extension/src/ui/sidepanelController.js` to render the user's Index ID in the account profile with a copy-to-clipboard action.
+  - Added `#profileIndexId` and `#profileIndexVal` to `extension/welcome.html` and rendered in `extension/src/ui/welcomeController.js`.
+  - Updated `extension/src/background/serviceWorker.js` (`syncClickWithBackend` and `dispatch15DayDigestNow`) to extract and propagate `user_index_id` to cloud persistence and local report templates.
+- Validation:
+  - Extension test suite: all 83 tests passed (`npm test`).
+  - Backend whole system tests: all 10 subsystems passed (`test_entire_system.py`).
+  - Backend attack vector tests: all 15 attack vectors passed (`test_auth_security.py`).
+
 ### 2026-11-20 — Side Panel Threat Intel Removal & Universal Mail URL Click History Recording
 
 - Side Panel UI Simplification:

@@ -57,6 +57,8 @@ class ScanAuditLog(Base):
     __tablename__ = "scan_audit_logs"
 
     id = Column(Integer, primary_key=True, index=True)
+    user_email = Column(String(255), index=True, nullable=True)
+    user_index_id = Column(String(64), index=True, nullable=True)
     scan_type = Column(String(16), nullable=False)  # "URL" or "EMAIL"
     content_hash = Column(String(64), index=True, nullable=False)
     risk_score = Column(Integer, nullable=False)
@@ -72,6 +74,7 @@ class UrlClickLog(Base):
 
     id = Column(Integer, primary_key=True, index=True)
     user_email = Column(String(255), index=True, nullable=True)
+    user_index_id = Column(String(64), index=True, nullable=True)
     url = Column(String(4096), nullable=False)
     defanged_url = Column(String(4096), nullable=False)
     url_hash = Column(String(64), index=True, nullable=False)

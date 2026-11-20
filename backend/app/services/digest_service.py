@@ -15,6 +15,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.config import settings
 from app.models.digest import SecurityDigestLog
 from app.models.threat import ScanAuditLog, UrlClickLog
+from app.models.user import generate_user_index_id
 from app.schemas.digest import DigestSendRequest, EmailRecordItem, UrlClickItem
 
 logger = logging.getLogger(__name__)
@@ -26,7 +27,8 @@ def generate_digest_html(
     period_start: str,
     period_end: str,
     records: List[EmailRecordItem],
-    url_clicks: Optional[List[UrlClickItem]] = None
+    url_clicks: Optional[List[UrlClickItem]] = None,
+    user_index_id: Optional[str] = None
 ) -> str:
     """
     Render a clean, high-contrast, responsive HTML email report for the 15-day period.
@@ -206,6 +208,8 @@ def generate_digest_html(
             """
         url_clicks_section_html = clicks_items_html
 
+    resolved_idx = user_index_id or generate_user_index_id(user_email)
+
     return f"""
     <!DOCTYPE html>
     <html>
@@ -238,6 +242,7 @@ def generate_digest_html(
                         <tr>
                             <td style="background:#0f172a;border-bottom:1px solid #1e293b;padding:12px 24px;font-size:13px;color:#94a3b8;">
                                 Prepared exclusively for: <strong style="color:#f8fafc;">{html.escape(user_name)}</strong> (&lt;{html.escape(user_email)}&gt;)
+                                &nbsp;&bull;&nbsp; Index ID: <strong style="color:#FFA586;font-family:monospace;">{html.escape(resolved_idx)}</strong>
                             </td>
                         </tr>
 
@@ -482,8 +487,10 @@ async def dispatch_15_day_digest(
 
     # 1. Record in database log
     try:
+        resolved_idx = getattr(request, "user_index_id", None) or generate_user_index_id(request.user_email)
         log_entry = SecurityDigestLog(
             user_email=request.user_email,
+            user_index_id=resolved_idx,
             period_start=request.period_start,
             period_end=request.period_end,
             total_emails=total_emails,

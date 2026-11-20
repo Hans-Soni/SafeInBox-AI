@@ -8,6 +8,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.database import get_db
 from app.models.threat import ThreatURL, ScanAuditLog, UrlClickLog
+from app.models.user import generate_user_index_id
 from app.schemas.url_scan import (
     URLScanRequest,
     URLScanResponse,
@@ -115,12 +116,14 @@ async def record_click(
     payload: UrlClickCreate,
     db: AsyncSession = Depends(get_db)
 ) -> UrlClickResponse:
-    """Record a user click on an email hyperlink in the persistent database."""
+    """Record a user click on an email hyperlink in the persistent database with user index ID tracking."""
     url_hash = sha256_hash(payload.url)
     defanged = payload.defanged_url or defang_url(payload.url)
+    resolved_index_id = payload.user_index_id or (generate_user_index_id(payload.user_email) if payload.user_email else None)
 
     click_entry = UrlClickLog(
         user_email=payload.user_email,
+        user_index_id=resolved_index_id,
         url=payload.url[:4096],
         defanged_url=defanged[:4096],
         url_hash=url_hash,
@@ -142,6 +145,8 @@ async def record_click(
         risk_score=click_entry.risk_score,
         risk_level=click_entry.risk_level,
         proceeded=click_entry.proceeded,
+        user_email=click_entry.user_email,
+        user_index_id=click_entry.user_index_id,
         recorded=True
     )
 
@@ -149,13 +154,16 @@ async def record_click(
 @router.get("/clicks", response_model=list[UrlClickResponse])
 async def get_clicks(
     user_email: str | None = None,
+    user_index_id: str | None = None,
     limit: int = 100,
     db: AsyncSession = Depends(get_db)
 ) -> list[UrlClickResponse]:
-    """Retrieve recent recorded click events from the persistent database."""
+    """Retrieve recent recorded click events from the persistent database filtered by email or index ID."""
     stmt = select(UrlClickLog)
-    if user_email:
-        stmt = stmt.where(UrlClickLog.user_email == user_email)
+    if user_index_id:
+        stmt = stmt.where(UrlClickLog.user_index_id == user_index_id.strip())
+    elif user_email:
+        stmt = stmt.where(UrlClickLog.user_email == user_email.strip().lower())
     stmt = stmt.order_by(UrlClickLog.clicked_at.desc()).limit(min(limit, 500))
     result = await db.execute(stmt)
     entries = result.scalars().all()
@@ -167,6 +175,8 @@ async def get_clicks(
             risk_score=entry.risk_score,
             risk_level=entry.risk_level,
             proceeded=entry.proceeded,
+            user_email=entry.user_email,
+            user_index_id=entry.user_index_id,
             recorded=True
         )
         for entry in entries
@@ -178,8 +188,11 @@ async def record_audit(
     payload: ScanAuditCreate,
     db: AsyncSession = Depends(get_db)
 ) -> ScanAuditResponse:
-    """Record a zero-PII scan audit log in the persistent database."""
+    """Record a zero-PII scan audit log in the persistent database with optional user index ID."""
+    resolved_index_id = payload.user_index_id or (generate_user_index_id(payload.user_email) if payload.user_email else None)
     audit_entry = ScanAuditLog(
+        user_email=payload.user_email,
+        user_index_id=resolved_index_id,
         scan_type=payload.scan_type.upper()[:16],
         content_hash=payload.content_hash[:64],
         risk_score=int(payload.risk_score),
@@ -196,6 +209,8 @@ async def record_audit(
         content_hash=audit_entry.content_hash,
         risk_score=audit_entry.risk_score,
         risk_level=audit_entry.risk_level,
+        user_email=audit_entry.user_email,
+        user_index_id=audit_entry.user_index_id,
         recorded=True
     )
 
@@ -203,6 +218,8 @@ async def record_audit(
 @router.get("/audits", response_model=list[ScanAuditResponse])
 async def get_audits(
     scan_type: str | None = None,
+    user_email: str | None = None,
+    user_index_id: str | None = None,
     limit: int = 100,
     db: AsyncSession = Depends(get_db)
 ) -> list[ScanAuditResponse]:
@@ -210,6 +227,10 @@ async def get_audits(
     stmt = select(ScanAuditLog)
     if scan_type:
         stmt = stmt.where(ScanAuditLog.scan_type == scan_type.upper())
+    if user_index_id:
+        stmt = stmt.where(ScanAuditLog.user_index_id == user_index_id.strip())
+    elif user_email:
+        stmt = stmt.where(ScanAuditLog.user_email == user_email.strip().lower())
     stmt = stmt.order_by(ScanAuditLog.created_at.desc()).limit(min(limit, 500))
     result = await db.execute(stmt)
     entries = result.scalars().all()
@@ -220,6 +241,8 @@ async def get_audits(
             content_hash=entry.content_hash,
             risk_score=entry.risk_score,
             risk_level=entry.risk_level,
+            user_email=entry.user_email,
+            user_index_id=entry.user_index_id,
             recorded=True
         )
         for entry in entries
