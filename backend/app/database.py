@@ -1,6 +1,7 @@
 """Database connection, session management, and table initialization."""
 
 from typing import AsyncGenerator
+from sqlalchemy import text
 from sqlalchemy.ext.asyncio import (
     AsyncSession,
     async_sessionmaker,
@@ -50,7 +51,30 @@ async def get_db() -> AsyncGenerator[AsyncSession, None]:
 
 
 async def init_db() -> None:
-    """Initialize database tables."""
+    """Initialize database tables and synchronize any missing columns/indexes."""
     async with engine.begin() as conn:
         await conn.run_sync(Base.metadata.create_all)
+
+        # Synchronize schema columns across PostgreSQL environments
+        dialect = conn.dialect.name
+        if dialect == "postgresql":
+            statements = [
+                "ALTER TABLE users ADD COLUMN IF NOT EXISTS index_id VARCHAR(64)",
+                "CREATE UNIQUE INDEX IF NOT EXISTS ix_users_index_id ON users (index_id)",
+                "ALTER TABLE url_clicks ADD COLUMN IF NOT EXISTS user_index_id VARCHAR(64)",
+                "CREATE INDEX IF NOT EXISTS ix_url_clicks_user_index_id ON url_clicks (user_index_id)",
+                "ALTER TABLE security_digest_logs ADD COLUMN IF NOT EXISTS user_index_id VARCHAR(64)",
+                "CREATE INDEX IF NOT EXISTS ix_security_digest_logs_user_index_id ON security_digest_logs (user_index_id)",
+                "ALTER TABLE terms_consents ADD COLUMN IF NOT EXISTS user_index_id VARCHAR(64)",
+                "CREATE INDEX IF NOT EXISTS ix_terms_consents_user_index_id ON terms_consents (user_index_id)",
+                "ALTER TABLE scan_audit_logs ADD COLUMN IF NOT EXISTS user_email VARCHAR(255)",
+                "CREATE INDEX IF NOT EXISTS ix_scan_audit_logs_user_email ON scan_audit_logs (user_email)",
+                "ALTER TABLE scan_audit_logs ADD COLUMN IF NOT EXISTS user_index_id VARCHAR(64)",
+                "CREATE INDEX IF NOT EXISTS ix_scan_audit_logs_user_index_id ON scan_audit_logs (user_index_id)",
+            ]
+            for stmt in statements:
+                try:
+                    await conn.execute(text(stmt))
+                except Exception:
+                    pass
 

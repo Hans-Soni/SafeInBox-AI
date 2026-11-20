@@ -34,6 +34,16 @@
 
 ## Change log
 
+### 2026-11-20 — Fix Signup Verification Code HTTP 500 & Auto-Sync DB Schema
+
+- Resolved Signup HTTP 500 on `POST /api/v1/auth/signup/request-otp`:
+  - Identified root cause: Live Neon PostgreSQL schema was missing `index_id` on `users`, causing `select(User)` to raise `asyncpg.ProgrammingError: column users.index_id does not exist`.
+  - Applied schema migration to Neon Cloud DB adding `index_id` on `users`, `user_index_id` on `url_clicks`, `security_digest_logs`, `terms_consents`, and `user_email`/`user_index_id` on `scan_audit_logs`, stamping Alembic version at `g7b8c9d0e1f2`.
+  - Upgraded `init_db()` in `backend/app/database.py` with self-healing column synchronization (`ALTER TABLE ... ADD COLUMN IF NOT EXISTS ...`) on PostgreSQL startup, ensuring schema remains synchronized across cold starts and deployments.
+  - Updated `backend/Dockerfile` CMD entrypoint to run `alembic upgrade head || true` before starting Uvicorn.
+  - Verified live OTP signup dispatch pipeline with `test_request_signup_otp.py` (200 OK via Google Apps Script relay).
+  - Validation: 83 Jest tests passed, all 10 system subsystems passed, all 15 auth security attack vectors passed.
+
 ### 2026-11-20 — Unique Index ID Creation on Signup & Email Data/URL Tracking
 
 - Unique Index ID Generation & Database Indexing:

@@ -25,5 +25,5 @@ ENV PYTHONUNBUFFERED=1 \
 
 EXPOSE 8080/tcp
 
-CMD ["sh", "-c", "exec uvicorn app.main:app --host 0.0.0.0 --port ${PORT:-8080} --workers 2 --timeout-keep-alive 30"]
+CMD ["sh", "-c", "alembic upgrade head || true && exec uvicorn app.main:app --host 0.0.0.0 --port ${PORT:-8080} --workers 2 --timeout-keep-alive 30"]
 
