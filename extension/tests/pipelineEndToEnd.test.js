@@ -896,7 +896,7 @@ test("User Authentication: Side panel includes Sign In / Sign Up modal and auth 
   assert.match(html, /id="btnSubmitSignIn"/);
   assert.match(html, /id="btnSubmitSignUp"/);
   assert.match(html, /id="btnSubmitSignOut"/);
-  assert.match(html, /id="cloudAccountRow"/);
+  assert.ok(!html.includes('id="cloudPanel"'), "Side panel should not contain id='cloudPanel'");
 
   // Controller wiring
   assert.match(controller, /initAuthManager/);

@@ -141,8 +141,6 @@ test("Entire System Test: All buttons, tabs, toggles, and modals exist and are p
     "btnClearMailClicks",
     "btnSendDigestNow",
     "btnPreviewDigest",
-    "btnConnectCloud",
-    "btnCloudAccountAction",
     "authModalClose",
     "authTabSignInBtn",
     "authTabSignUpBtn",
@@ -155,6 +153,9 @@ test("Entire System Test: All buttons, tabs, toggles, and modals exist and are p
   for (const btnId of sidepanelButtons) {
     assert.ok(sidepanelHtml.includes(`id="${btnId}"`), `Sidepanel must contain button #${btnId}`);
   }
+
+  // Cloud Threat Intel accordion panel was removed per design requirements
+  assert.ok(!sidepanelHtml.includes('id="cloudPanel"'), "Sidepanel should not contain id='cloudPanel'");
 
   // Welcome Page Core Buttons
   const welcomeButtons = [

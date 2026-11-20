@@ -49,6 +49,26 @@ function defangUrlForLog(url) {
     .replace(/https:\/\//gi, "hxxps://");
 }
 
+function unwrapWebmailRedirectUrl(rawUrl) {
+  if (!rawUrl) return "";
+  try {
+    const u = new URL(rawUrl);
+    // Google redirect wrapper: https://www.google.com/url?q=<target>&...
+    if ((u.hostname === "www.google.com" || u.hostname === "google.com") && u.pathname === "/url") {
+      const q = u.searchParams.get("q");
+      if (q && /^https?:\/\//i.test(q)) return q;
+    }
+    // Outlook Safelinks wrapper: https://*.safelinks.protection.outlook.com/?url=<target>&...
+    if (u.hostname.endsWith("safelinks.protection.outlook.com")) {
+      const target = u.searchParams.get("url");
+      if (target && /^https?:\/\//i.test(target)) return target;
+    }
+    return rawUrl;
+  } catch {
+    return rawUrl;
+  }
+}
+
 function recordWebmailUrlClick(entry) {
   if (typeof chrome === "undefined" || !chrome.storage || !chrome.storage.local) {
     return Promise.resolve(false);
@@ -59,7 +79,7 @@ function recordWebmailUrlClick(entry) {
   }
   if (!entry || !entry.url) return Promise.resolve(false);
 
-  const cleanUrl = String(entry.url).trim();
+  const cleanUrl = unwrapWebmailRedirectUrl(String(entry.url).trim());
   const clickRecord = {
     id: `click_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`,
     url: cleanUrl,
@@ -69,7 +89,7 @@ function recordWebmailUrlClick(entry) {
     email_subject: String(entry.emailSubject || "").slice(0, 150),
     sender: String(entry.sender || "").slice(0, 150),
     risk_score: typeof entry.riskScore === "number" ? entry.riskScore : 0,
-    risk_level: String(entry.riskLevel || "AUDITED"),
+    risk_level: String(entry.riskLevel || (entry.riskScore >= 50 ? "HIGH" : "SAFE")),
     proceeded: entry.proceeded !== false,
     source: String(entry.source || "email_body_link")
   };
@@ -299,17 +319,26 @@ function attachSafeLinkClickListener(aEl, urlVerdict, emailData) {
   if (aEl.dataset.safeinboxClickTracked === "true") return;
   aEl.dataset.safeinboxClickTracked = "true";
 
-  aEl.addEventListener("click", () => {
+  const onSafeClick = () => {
+    const rawTarget = aEl.href || aEl.getAttribute("href") || "";
+    if (!rawTarget) return;
+    const finalUrl = unwrapWebmailRedirectUrl(rawTarget);
     recordWebmailUrlClick({
-      url: aEl.href,
+      url: finalUrl,
       emailSubject: emailData ? emailData.subject : "",
       sender: emailData ? (emailData.senderName ? `${emailData.senderName} <${emailData.senderEmail}>` : emailData.senderEmail) : "",
-      riskScore: (urlVerdict && urlVerdict.risk_score) || 0,
+      riskScore: (urlVerdict && typeof urlVerdict.risk_score === "number") ? urlVerdict.risk_score : 0,
       riskLevel: (urlVerdict && urlVerdict.risk_level) || "SAFE",
       proceeded: true,
       source: "email_body_link"
     });
-  });
+  };
+
+  // Capture phase ensures recording even if webmail client stops propagation
+  aEl.addEventListener("click", onSafeClick, true);
+  aEl.addEventListener("auxclick", (e) => {
+    if (e.button === 1) onSafeClick();
+  }, true);
 }
 
 function getEmailScanFingerprint(emailData, emailUrls) {
@@ -506,6 +535,49 @@ async function processSingleEmailContainer(containerEl, clientType) {
     urlIndex++;
   }
 
+  // Safety net: ensure EVERY anchor tag in this email container is tracked
+  urlElements.forEach(aEl => {
+    if (aEl.dataset.safeinboxFlagged !== "true" && aEl.dataset.safeinboxClickTracked !== "true") {
+      const rawTarget = aEl.href || aEl.getAttribute("href") || "";
+      const unwrapped = unwrapWebmailRedirectUrl(rawTarget);
+      const uRes = urlScanMap.get(unwrapped) || urlScanMap.get(rawTarget) || urlScanMap.get(aEl.href) || { risk_score: 0, risk_level: "SAFE" };
+      const isHigh = (uRes.risk_score >= 50) || (uRes.evidence && uRes.evidence.length > 0);
+      if (isHigh) {
+        flagSuspiciousLinkElement(aEl, uRes, emailData);
+      } else {
+        attachSafeLinkClickListener(aEl, uRes, emailData);
+      }
+    }
+  });
+
+  // Delegated capture listener on containerEl as a secondary guard for dynamically added or nested links
+  if (containerEl && containerEl.dataset.safeinboxDelegatedClick !== "true") {
+    containerEl.dataset.safeinboxDelegatedClick = "true";
+    const onContainerClick = (e) => {
+      const aEl = e.target && e.target.closest ? e.target.closest("a[href]") : null;
+      if (!aEl) return;
+      const rawHref = aEl.href || aEl.getAttribute("href") || "";
+      if (!rawHref || !/^https?:\/\//i.test(rawHref)) return;
+      if (aEl.dataset.safeinboxFlagged === "true" || aEl.dataset.safeinboxClickTracked === "true") return;
+      aEl.dataset.safeinboxClickTracked = "true";
+      const finalUrl = unwrapWebmailRedirectUrl(rawHref);
+      const uRes = urlScanMap.get(finalUrl) || urlScanMap.get(rawHref) || { risk_score: 0, risk_level: "SAFE" };
+      recordWebmailUrlClick({
+        url: finalUrl,
+        emailSubject: emailData ? emailData.subject : "",
+        sender: emailData ? (emailData.senderName ? `${emailData.senderName} <${emailData.senderEmail}>` : emailData.senderEmail) : "",
+        riskScore: (typeof uRes.risk_score === "number") ? uRes.risk_score : 0,
+        riskLevel: uRes.risk_level || "SAFE",
+        proceeded: true,
+        source: "email_body_link"
+      });
+    };
+    containerEl.addEventListener("click", onContainerClick, true);
+    containerEl.addEventListener("auxclick", (e) => {
+      if (e.button === 1) onContainerClick(e);
+    }, true);
+  }
+
   // RENDER PERMANENT BANNER 1 (URLs ONLY)
   renderUrlSecurityBanner(banner1El, urlScanMap, emailData);
 
@@ -672,18 +744,20 @@ function flagSuspiciousLinkElement(aEl, urlVerdict, emailData) {
   }
 
   // Intercept click to prevent accidental navigation and log click
-  aEl.addEventListener("click", e => {
+  const onFlaggedClick = (e) => {
     e.preventDefault();
     e.stopPropagation();
+    const rawTarget = aEl.href || aEl.getAttribute("href") || "";
+    const finalUrl = unwrapWebmailRedirectUrl(rawTarget);
     const proceed = confirm(
       `🛡️ SafeInbox AI Security Warning:\n` +
       `This link was flagged as a potential phishing or security risk!\n\n` +
-      `Target URL: ${aEl.href}\n` +
+      `Target URL: ${finalUrl}\n` +
       `Risk Level: ${urlVerdict.risk_level || 'HIGH'} (${urlVerdict.risk_score || 80}/100)\n\n` +
       `Do you still want to proceed to this external destination?`
     );
     recordWebmailUrlClick({
-      url: aEl.href,
+      url: finalUrl,
       emailSubject: emailData ? emailData.subject : "",
       sender: emailData ? (emailData.senderName ? `${emailData.senderName} <${emailData.senderEmail}>` : emailData.senderEmail) : "",
       riskScore: urlVerdict.risk_score || 80,
@@ -692,8 +766,13 @@ function flagSuspiciousLinkElement(aEl, urlVerdict, emailData) {
       source: "flagged_email_link"
     });
     if (proceed) {
-      window.open(aEl.href, "_blank", "noopener,noreferrer");
+      window.open(finalUrl, "_blank", "noopener,noreferrer");
     }
+  };
+
+  aEl.addEventListener("click", onFlaggedClick, true);
+  aEl.addEventListener("auxclick", (e) => {
+    if (e.button === 1) onFlaggedClick(e);
   }, true);
 }
 
@@ -1387,6 +1466,8 @@ if (typeof module !== "undefined" && module.exports) {
     associateClickWith15DayRecord,
     get15DayTimeSlab,
     defangUrlForLog,
+    unwrapWebmailRedirectUrl,
+    attachSafeLinkClickListener,
     EMAIL_RECORDS_15DAY_KEY,
     WEBMAIL_CLICKS_KEY
   };

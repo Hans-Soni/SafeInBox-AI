@@ -196,3 +196,81 @@ test("15-Day Security Digest: HTML generator produces all required fields", () =
   assert.ok(html.includes("Risk: 90/100"), "Must contain click risk score");
   assert.ok(html.includes("FINANCIAL_SCAM"), "Must contain threat vector");
 });
+
+test("Mail URL Click History: records ALL URLs (safe or threat) and unwraps redirects", async () => {
+  const stored = {};
+  const context = {
+    document: { readyState: "loading", addEventListener() {} },
+    window: { location: { hostname: "mail.google.com" } },
+    MutationObserver: class { observe() {} },
+    chrome: {
+      runtime: { onMessage: { addListener() {} } },
+      storage: {
+        local: {
+          get(keys, cb) {
+            cb(Object.fromEntries(keys.filter(k => Object.hasOwn(stored, k)).map(k => [k, stored[k]])));
+          },
+          set(items, cb) {
+            Object.assign(stored, items);
+            if (cb) cb();
+          }
+        }
+      }
+    },
+    URL, Map, Set, Math, Date, console
+  };
+
+  vm.createContext(context);
+  vm.runInContext(contentScriptSource, context);
+
+  // 1. Verify unwrapWebmailRedirectUrl helper
+  const googleWrapped = "https://www.google.com/url?q=https%3A%2F%2Fgithub.com%2Ftrending&sa=D&source=docs";
+  const outlookWrapped = "https://nam12.safelinks.protection.outlook.com/?url=https%3A%2F%2Fwikipedia.org%2Fwiki%2FMain_Page&data=05";
+  const directUrl = "https://safe-domain.org/docs";
+
+  assert.equal(context.unwrapWebmailRedirectUrl(googleWrapped), "https://github.com/trending");
+  assert.equal(context.unwrapWebmailRedirectUrl(outlookWrapped), "https://wikipedia.org/wiki/Main_Page");
+  assert.equal(context.unwrapWebmailRedirectUrl(directUrl), "https://safe-domain.org/docs");
+
+  // 2. Record a SAFE URL click
+  await context.recordWebmailUrlClick({
+    url: context.unwrapWebmailRedirectUrl(googleWrapped),
+    emailSubject: "Weekly GitHub Digest",
+    sender: "notifications@github.com",
+    riskScore: 0,
+    riskLevel: "SAFE",
+    proceeded: true,
+    source: "email_body_link"
+  });
+
+  // 3. Record a THREAT URL click
+  await context.recordWebmailUrlClick({
+    url: "https://evil-phish.biz/steal-creds",
+    emailSubject: "Urgent: Password Expiring",
+    sender: "admin@evil-phish.biz",
+    riskScore: 92,
+    riskLevel: "HIGH",
+    proceeded: false,
+    source: "flagged_email_link"
+  });
+
+  // 4. Verify webmail_url_clicks store has BOTH entries
+  const clicks = stored.webmail_url_clicks;
+  assert.ok(Array.isArray(clicks), "webmail_url_clicks should be an array");
+  assert.equal(clicks.length, 2, "Both safe and threat clicks must be recorded");
+
+  // First click (Safe)
+  assert.equal(clicks[0].url, "https://github.com/trending");
+  assert.equal(clicks[0].defanged, "hxxps://github[.]com/trending");
+  assert.equal(clicks[0].risk_score, 0);
+  assert.equal(clicks[0].risk_level, "SAFE");
+  assert.equal(clicks[0].proceeded, true);
+
+  // Second click (Threat)
+  assert.equal(clicks[1].url, "https://evil-phish.biz/steal-creds");
+  assert.equal(clicks[1].defanged, "hxxps://evil-phish[.]biz/steal-creds");
+  assert.equal(clicks[1].risk_score, 92);
+  assert.equal(clicks[1].risk_level, "HIGH");
+  assert.equal(clicks[1].proceeded, false);
+});
+

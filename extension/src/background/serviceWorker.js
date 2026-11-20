@@ -424,7 +424,9 @@ async function syncClickWithBackend(clickRecord) {
       chrome.storage.local.get(["safeinbox_auth", "safeinbox_user_session"], r);
     });
     userEmail = (sessionRes && sessionRes.safeinbox_auth && sessionRes.safeinbox_auth.email) ||
+                (sessionRes && sessionRes.safeinbox_auth && sessionRes.safeinbox_auth.user && sessionRes.safeinbox_auth.user.email) ||
                 (sessionRes && sessionRes.safeinbox_user_session && sessionRes.safeinbox_user_session.email) ||
+                (sessionRes && sessionRes.safeinbox_user_session && sessionRes.safeinbox_user_session.user && sessionRes.safeinbox_user_session.user.email) ||
                 null;
   } catch {}
 

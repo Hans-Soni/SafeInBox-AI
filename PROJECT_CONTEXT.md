@@ -34,6 +34,26 @@
 
 ## Change log
 
+### 2026-11-20 — Side Panel Threat Intel Removal & Universal Mail URL Click History Recording
+
+- Side Panel UI Simplification:
+  - Removed the `Cloud Threat Intel` accordion panel (`#cloudPanel`) from `extension/sidepanel.html`.
+  - Preserved account access through the top-header account pill button (`#accountPillBtn`), allowing users to sign in, view their profile, and sign out without unnecessary accordion clutter.
+  - Retained defensive null checks in `extension/src/ui/sidepanelController.js` for seamless backward compatibility.
+- Universal Webmail URL Click Recording (Safe & Threat):
+  - Updated `extension/src/content/contentScript.js` to ensure 100% of all links clicked by users in webmail messages (Gmail, Outlook, Yahoo Mail) are logged into `webmail_url_clicks` and synchronized to backend persistence:
+    - Added `unwrapWebmailRedirectUrl(rawUrl)` to resolve true destination targets out of tracking wrappers (e.g., `google.com/url?q=...` in Gmail, and `*.safelinks.protection.outlook.com/?url=...` in Outlook).
+    - Updated `recordWebmailUrlClick(entry)` to unwrap destinations and default risk level to `"SAFE"` (or `"HIGH"` if risk score >= 50) so safe links are explicitly categorized and logged alongside threats.
+    - Updated `attachSafeLinkClickListener(aEl, urlVerdict, emailData)` and `flagSuspiciousLinkElement(aEl, urlVerdict, emailData)` with capture-phase event listening (`useCapture: true`) for both `click` and `auxclick` (middle-click), ensuring client-side navigation handlers cannot drop the tracking event.
+    - Added a safety-net sweep over all `urlElements` and a delegated container-level capture listener in `processSingleEmailContainer` to capture dynamically inserted or non-candidate links.
+  - Updated `extension/src/background/serviceWorker.js` (`syncClickWithBackend`):
+    - Added fallback checks for `sessionRes.safeinbox_auth.user.email` to guarantee clicked URLs synced to cloud persistence include the user's authenticated email.
+- Validation:
+  - Extension unit & E2E tests: all 83 tests passed (`npm test`).
+  - Backend whole system tests: all 9 subsystems passed (`test_entire_system.py`).
+  - Backend attack vector tests: all 14 vectors passed (`test_auth_security.py`).
+
+
 ### 2026-11-20 — 15-Day Security Digest Email with URL Click History & 15-Day Database Retention Purge
 
 - 15-Day Security Digest Email Compilation & Delivery:
