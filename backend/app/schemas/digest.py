@@ -8,13 +8,16 @@ EMAIL_REGEX = re.compile(r"^[a-zA-Z0-9_.+-]+@[a-zA-Z0-9-]+\.[a-zA-Z0-9-.]+$")
 
 
 class UrlClickItem(BaseModel):
-    """Audited URL click item from within an email."""
+    """Audited URL click item from within an email or webmail session."""
     url: str
     defanged: Optional[str] = None
     risk_score: float = 0.0
     risk_level: str = "AUDITED"
     timestamp: Optional[Any] = None
     proceeded: bool = True
+    email_subject: Optional[str] = None
+    sender: Optional[str] = None
+    source: Optional[str] = None
 
 
 class EmailRecordItem(BaseModel):
@@ -40,7 +43,8 @@ class DigestSendRequest(BaseModel):
     user_name: Optional[str] = "SafeInbox AI User"
     period_start: str = Field(..., description="Start of 15-day time-slab window")
     period_end: str = Field(..., description="End of 15-day time-slab window")
-    records: List[EmailRecordItem] = Field(default_factory=list)
+    records: List[EmailRecordItem] = Field(default_factory=list, description="All email threat reports in 15 days")
+    url_clicks: List[UrlClickItem] = Field(default_factory=list, description="All webmail URL clicks in 15 days")
 
     @field_validator("user_email")
     @classmethod
@@ -60,8 +64,21 @@ class DigestSendResponse(BaseModel):
     total_emails: int
     threats_detected: int
     total_clicks: int
-    dispatch_mode: str  # "smtp" or "simulated_preview"
+    purged_records: int = 0
+    dispatch_mode: str  # "apps_script", "smtp", or "simulated_preview"
     preview_html: Optional[str] = None
+
+
+class DigestPurgeResponse(BaseModel):
+    """Response returned upon 15-day history database purge."""
+    success: bool
+    message: str
+    purged_audits: int
+    purged_clicks: int
+    purged_digests: int
+    total_purged: int
+    retention_days: int
+    cutoff_iso: str
 
 
 class DigestHistoryItem(BaseModel):

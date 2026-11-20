@@ -1,17 +1,20 @@
 """15-Day Security & Threat Audit Digest Service."""
 
 import asyncio
+from datetime import datetime, timezone, timedelta
 import html
 import logging
 import smtplib
 from email.mime.multipart import MIMEMultipart
 from email.mime.text import MIMEText
-from typing import List, Tuple
+from typing import List, Tuple, Optional, Dict, Any
 import httpx
+from sqlalchemy import delete
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.config import settings
 from app.models.digest import SecurityDigestLog
+from app.models.threat import ScanAuditLog, UrlClickLog
 from app.schemas.digest import DigestSendRequest, EmailRecordItem, UrlClickItem
 
 logger = logging.getLogger(__name__)
@@ -22,26 +25,55 @@ def generate_digest_html(
     user_name: str,
     period_start: str,
     period_end: str,
-    records: List[EmailRecordItem]
+    records: List[EmailRecordItem],
+    url_clicks: Optional[List[UrlClickItem]] = None
 ) -> str:
-    """Render a clean, high-contrast, responsive HTML email report for the 15-day period."""
+    """
+    Render a clean, high-contrast, responsive HTML email report for the 15-day period.
+    Includes:
+    - Summary risk statistics
+    - All available email threat reports (senders, receivers, time-slabs, ML threat scores, threat vectors)
+    - Comprehensive 15-day URL click history
+    - 15-day retention policy notification
+    """
     total_emails = len(records)
     threats = [r for r in records if r.composite_risk >= 35 or r.risk_level in ("HIGH", "CRITICAL", "MEDIUM")]
     threat_count = len(threats)
     safe_count = total_emails - threat_count
 
-    total_clicks = sum(len(r.clicked_urls) for r in records)
-    suspicious_clicks = sum(
-        sum(1 for c in r.clicked_urls if c.risk_score >= 35 or c.risk_level in ("SUSPICIOUS", "MALICIOUS", "THREAT"))
-        for r in records
-    )
+    # Aggregate URL clicks from both explicit url_clicks and individual record clicked_urls
+    aggregated_clicks: List[UrlClickItem] = []
+    seen_click_keys = set()
 
-    # Render record rows
+    # 1. Clicks from request.url_clicks
+    if url_clicks:
+        for c in url_clicks:
+            key = (c.url, str(c.timestamp))
+            if key not in seen_click_keys:
+                seen_click_keys.add(key)
+                aggregated_clicks.append(c)
+
+    # 2. Clicks from inside individual email records
+    for r in records:
+        for c in r.clicked_urls:
+            key = (c.url, str(c.timestamp))
+            if key not in seen_click_keys:
+                seen_click_keys.add(key)
+                # Attach email subject/sender context if missing
+                if not getattr(c, "email_subject", None):
+                    c.email_subject = r.subject
+                if not getattr(c, "sender", None):
+                    c.sender = r.sender
+                aggregated_clicks.append(c)
+
+    total_clicks = len(aggregated_clicks)
+
+    # Render individual email record rows
     record_cards_html = ""
     if not records:
         record_cards_html = """
         <div style="background:#0f172a;border:1px solid #1e293b;border-radius:10px;padding:24px;text-align:center;color:#94a3b8;font-size:14px;">
-            No webmail scan or click activity recorded during this 15-day time-slab.
+            No webmail scan activity recorded during this 15-day time-slab.
         </div>
         """
     else:
@@ -55,7 +87,7 @@ def generate_digest_html(
             if rec.clicked_urls:
                 clicks_list_items = ""
                 for click in rec.clicked_urls:
-                    c_threat = click.risk_score >= 35 or click.risk_level in ("SUSPICIOUS", "MALICIOUS", "THREAT")
+                    c_threat = click.risk_score >= 35 or click.risk_level in ("SUSPICIOUS", "MALICIOUS", "THREAT", "HIGH", "CRITICAL")
                     c_color = "#ef4444" if c_threat else "#10b981"
                     c_defanged = click.defanged or click.url.replace(".", "[.]").replace("http://", "hxxp://").replace("https://", "hxxps://")
                     c_time = str(click.timestamp) if click.timestamp else "Logged"
@@ -127,6 +159,53 @@ def generate_digest_html(
             </div>
             """
 
+    # Render dedicated 15-day URL click history section
+    url_clicks_section_html = ""
+    if not aggregated_clicks:
+        url_clicks_section_html = """
+        <div style="background:#0f172a;border:1px solid #1e293b;border-radius:10px;padding:20px;text-align:center;color:#94a3b8;font-size:13px;">
+            No hyperlink clicks were performed in webmail during this 15-day audit period.
+        </div>
+        """
+    else:
+        clicks_items_html = ""
+        for c_idx, click in enumerate(aggregated_clicks, 1):
+            c_threat = click.risk_score >= 35 or click.risk_level in ("SUSPICIOUS", "MALICIOUS", "THREAT", "HIGH", "CRITICAL")
+            c_badge_color = "#ef4444" if click.risk_score >= 60 else "#f59e0b" if click.risk_score >= 35 else "#10b981"
+            c_badge_bg = "#450a0a" if click.risk_score >= 60 else "#451a03" if click.risk_score >= 35 else "#064e3b"
+            c_border = "#991b1b" if c_threat else "#1e293b"
+            c_defanged = click.defanged or click.url.replace(".", "[.]").replace("http://", "hxxp://").replace("https://", "hxxps://")
+            c_time = str(click.timestamp) if click.timestamp else "Recorded"
+            c_context = click.email_subject or click.sender or "(Webmail Link)"
+            c_action_text = "✓ Proceeded" if click.proceeded else "✋ Blocked/Aborted"
+            c_action_color = "#10b981" if click.proceeded else "#ef4444"
+
+            clicks_items_html += f"""
+            <div style="background:#0f172a;border:1px solid {c_border};border-radius:8px;padding:12px 16px;margin-bottom:10px;">
+                <div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:6px;">
+                    <div>
+                        <span style="font-size:11px;color:#94a3b8;font-weight:bold;margin-right:6px;">#{c_idx}</span>
+                        <span style="font-family:monospace;color:#38bdf8;font-size:13px;word-break:break-all;">{html.escape(c_defanged)}</span>
+                    </div>
+                    <span style="background:{c_badge_bg};color:{c_badge_color};border:1px solid {c_badge_color};padding:2px 8px;border-radius:10px;font-size:11px;font-weight:bold;white-space:nowrap;margin-left:10px;">
+                        {click.risk_score:.0f}/100 ({html.escape(click.risk_level)})
+                    </span>
+                </div>
+                <div style="display:flex;justify-content:space-between;align-items:center;font-size:12px;color:#94a3b8;flex-wrap:wrap;gap:6px;">
+                    <div>
+                        <span style="color:#64748b;">Email Context:</span> <strong style="color:#e2e8f0;">{html.escape(c_context)}</strong>
+                    </div>
+                    <div>
+                        <span style="color:#64748b;">Clicked At:</span> <span style="color:#cbd5e1;">{html.escape(c_time)}</span>
+                        <span style="margin-left:8px;padding:2px 6px;border-radius:4px;font-size:10px;background:#1e293b;color:{c_action_color};font-weight:600;">
+                            {c_action_text}
+                        </span>
+                    </div>
+                </div>
+            </div>
+            """
+        url_clicks_section_html = clicks_items_html
+
     return f"""
     <!DOCTYPE html>
     <html>
@@ -189,16 +268,20 @@ def generate_digest_html(
                                     </tr>
                                 </table>
 
-                                <!-- Section Title -->
+                                <!-- Section 1: Email Threat Reports -->
                                 <div style="font-size:16px;font-weight:bold;color:#f8fafc;margin-bottom:14px;display:flex;align-items:center;">
-                                    📋 15-Day Time-Slab Records (Sender, Receiver, ML Scores &amp; Clicks)
+                                    📋 15-Day Email Security Reports (Sender, Receiver &amp; ML Threat Scores)
                                 </div>
-
-                                <!-- Cards List -->
                                 {record_cards_html}
 
+                                <!-- Section 2: Comprehensive URL Click History -->
+                                <div style="font-size:16px;font-weight:bold;color:#f8fafc;margin-top:24px;margin-bottom:14px;display:flex;align-items:center;">
+                                    🔗 15-Day Webmail URL Click Audit Trail ({total_clicks})
+                                </div>
+                                {url_clicks_section_html}
+
                                 <!-- Guidance Box -->
-                                <div style="background:#0c192c;border:1px solid #1e3a8a;border-radius:8px;padding:16px;margin-top:20px;">
+                                <div style="background:#0c192c;border:1px solid #1e3a8a;border-radius:8px;padding:16px;margin-top:24px;">
                                     <div style="font-size:13px;font-weight:bold;color:#60a5fa;margin-bottom:4px;">
                                         💡 Autonomous Security Recommendation:
                                     </div>
@@ -209,11 +292,14 @@ def generate_digest_html(
                             </td>
                         </tr>
 
-                        <!-- Footer -->
+                        <!-- Footer & 15-Day Retention Notice -->
                         <tr>
                             <td style="background:#030712;border-top:1px solid #1e293b;padding:20px 24px;text-align:center;font-size:11px;color:#64748b;">
-                                <p style="margin:0 0 4px 0;">SafeInbox AI &bull; Autonomous Client-Side Threat Intelligence</p>
-                                <p style="margin:0;">This scheduled report is automatically generated every 15 days for your account. Confidential &amp; Encrypted.</p>
+                                <p style="margin:0 0 6px 0;">SafeInbox AI &bull; Autonomous Client-Side Threat Intelligence</p>
+                                <p style="margin:0 0 6px 0;">This scheduled report is automatically generated every 15 days for your account. Confidential &amp; Encrypted.</p>
+                                <p style="margin:6px 0 0 0;color:#94a3b8;font-size:11px;line-height:1.4;">
+                                    ⏳ <strong>15-Day Privacy Lifecycle:</strong> Scanned email audit records and URL click history are retained for 15 days, after which they are permanently cleared from our database.
+                                </p>
                             </td>
                         </tr>
                     </table>
@@ -249,30 +335,114 @@ def send_smtp_email(to_email: str, subject: str, html_content: str) -> None:
         server.quit()
 
 
+async def purge_expired_15day_history(
+    db: AsyncSession,
+    user_email: Optional[str] = None,
+    days: int = 15
+) -> Dict[str, Any]:
+    """
+    Enforce the 15-day retention lifecycle policy:
+    Permanently delete scan audit logs, URL clicks, and past digest logs
+    older than 15 days from Neon PostgreSQL / SQLite.
+    """
+    cutoff = datetime.now(timezone.utc) - timedelta(days=days)
+
+    purged_audits = 0
+    purged_clicks = 0
+    purged_digests = 0
+
+    try:
+        # 1. Purge ScanAuditLog older than 15 days
+        stmt_audits = delete(ScanAuditLog).where(ScanAuditLog.created_at < cutoff)
+        res_audits = await db.execute(stmt_audits)
+        purged_audits = res_audits.rowcount if hasattr(res_audits, "rowcount") and res_audits.rowcount is not None else 0
+    except Exception as e:
+        logger.warning("Could not purge expired scan_audit_logs: %s", e)
+
+    try:
+        # 2. Purge UrlClickLog older than 15 days
+        if user_email:
+            clean_email = user_email.strip().lower()
+            stmt_clicks = delete(UrlClickLog).where(
+                (UrlClickLog.clicked_at < cutoff) &
+                ((UrlClickLog.user_email == clean_email) | (UrlClickLog.user_email.is_(None)))
+            )
+        else:
+            stmt_clicks = delete(UrlClickLog).where(UrlClickLog.clicked_at < cutoff)
+        res_clicks = await db.execute(stmt_clicks)
+        purged_clicks = res_clicks.rowcount if hasattr(res_clicks, "rowcount") and res_clicks.rowcount is not None else 0
+    except Exception as e:
+        logger.warning("Could not purge expired url_clicks: %s", e)
+
+    try:
+        # 3. Purge older SecurityDigestLog older than 15 days
+        if user_email:
+            clean_email = user_email.strip().lower()
+            stmt_digests = delete(SecurityDigestLog).where(
+                (SecurityDigestLog.created_at < cutoff) & (SecurityDigestLog.user_email == clean_email)
+            )
+        else:
+            stmt_digests = delete(SecurityDigestLog).where(SecurityDigestLog.created_at < cutoff)
+        res_digests = await db.execute(stmt_digests)
+        purged_digests = res_digests.rowcount if hasattr(res_digests, "rowcount") and res_digests.rowcount is not None else 0
+    except Exception as e:
+        logger.warning("Could not purge expired security_digest_logs: %s", e)
+
+    try:
+        await db.commit()
+    except Exception as commit_err:
+        logger.warning("Error committing database purge transaction: %s", commit_err)
+
+    total_purged = max(purged_audits, 0) + max(purged_clicks, 0) + max(purged_digests, 0)
+    logger.info(
+        "Purged 15-day expired database records: %d audits, %d clicks, %d digests (cutoff=%s)",
+        purged_audits, purged_clicks, purged_digests, cutoff.isoformat()
+    )
+
+    return {
+        "purged_audits": max(purged_audits, 0),
+        "purged_clicks": max(purged_clicks, 0),
+        "purged_digests": max(purged_digests, 0),
+        "total_purged": total_purged,
+        "retention_days": days,
+        "cutoff_iso": cutoff.isoformat()
+    }
+
+
 async def dispatch_15_day_digest(
     db: AsyncSession,
     request: DigestSendRequest
-) -> Tuple[bool, str, str, str]:
+) -> Tuple[bool, str, str, str, Dict[str, Any]]:
     """
-    Format and deliver the 15-day security record to the specific user.
-    Returns (success, message, dispatch_mode, rendered_html).
+    Format and deliver the 15-day security record to the specific user email,
+    including all available email reports and URL click history, then automatically
+    purges database records older than 15 days.
+    Returns (success, message, dispatch_mode, rendered_html, purge_info).
     """
     html_report = generate_digest_html(
         user_email=request.user_email,
         user_name=request.user_name or "SafeInbox AI User",
         period_start=request.period_start,
         period_end=request.period_end,
-        records=request.records
+        records=request.records,
+        url_clicks=request.url_clicks
     )
 
     total_emails = len(request.records)
     threat_count = sum(1 for r in request.records if r.composite_risk >= 35 or r.risk_level in ("HIGH", "CRITICAL", "MEDIUM"))
-    click_count = sum(len(r.clicked_urls) for r in request.records)
+    
+    # Total clicks includes request.url_clicks and in-email clicked_urls
+    click_urls_set = set(c.url for c in request.url_clicks)
+    for r in request.records:
+        for c in r.clicked_urls:
+            click_urls_set.add(c.url)
+    click_count = max(len(click_urls_set), len(request.url_clicks))
+
     subject = f"SafeInbox AI: 15-Day Security & Threat Audit ({request.period_start} to {request.period_end})"
 
     dispatch_mode = "simulated_preview"
     status = "simulated"
-    note = "Simulated delivery (SMTP_HOST not configured, preview generated)."
+    note = "Simulated delivery (SMTP/Apps Script not connected, preview generated)."
 
     if settings.APPS_SCRIPT_URL:
         try:
@@ -310,7 +480,7 @@ async def dispatch_15_day_digest(
     else:
         logger.info("15-day digest for %s simulated (SMTP credentials not configured)", request.user_email)
 
-    # Record in database log
+    # 1. Record in database log
     try:
         log_entry = SecurityDigestLog(
             user_email=request.user_email,
@@ -327,5 +497,9 @@ async def dispatch_15_day_digest(
     except Exception as db_err:
         logger.warning("Could not persist SecurityDigestLog to database: %s", db_err)
 
-    return True, note, dispatch_mode, html_report
+    # 2. Automatically purge expired records older than 15 days from database
+    purge_info = await purge_expired_15day_history(db, user_email=request.user_email, days=15)
+    if purge_info.get("total_purged", 0) > 0:
+        note += f" | Database: purged {purge_info['total_purged']} expired history records older than 15 days."
 
+    return True, note, dispatch_mode, html_report, purge_info

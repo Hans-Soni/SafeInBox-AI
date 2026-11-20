@@ -1063,8 +1063,11 @@ function initDigestPanel() {
           const res = resp.result || {};
           if (el.digestStatusMsg) {
             el.digestStatusMsg.className = "digest-status-msg success";
-            const mode = res.dispatch_mode === "smtp" ? "Sent via SMTP" : "Autonomous Digest Compiled";
-            el.digestStatusMsg.textContent = `✓ ${mode} (${res.total_emails || 0} emails, ${res.total_clicks || 0} clicks). Next dispatch in 15 days.`;
+            const mode = res.dispatch_mode === "apps_script" ? "Sent to your email via Google Apps Script" :
+                         res.dispatch_mode === "smtp" ? "Sent to your email via SMTP" :
+                         "Autonomous Digest Compiled";
+            const purgeNote = res.purged_records ? ` (Purged ${res.purged_records} expired >15d records)` : "";
+            el.digestStatusMsg.textContent = `✓ ${mode} (${res.total_emails || 0} emails, ${res.total_clicks || 0} URL clicks)${purgeNote}. Next dispatch in 15 days.`;
           }
           refreshDigestPanel();
         });

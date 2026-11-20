@@ -17,7 +17,12 @@
 - Privacy boundary: Zero-leak policy for raw email bodies and PII. No email body text, sender/receiver addresses, or subject lines are stored in backend database tables (`ThreatURL`, `ScanAuditLog`) or persistent cloud logs. Only cryptographic SHA-256 digests, threat vectors, risk scores, and sanitized IOCs are retained.
 - Dataset & Storage Separation: URL storage and Text/Email storage are maintained in completely separate pipelines, caches, and database partitions. In the browser extension, `offline_url_feedback` and `offline_text_feedback` occupy separate keys, and `urlThreatScan:` / `emailThreatScan:` caches are distinct. In the backend, `threat_urls` handles URL IOCs while `scan_audit_logs` and `feedback_records` strictly partition URL and TEXT entries. Training data is strictly isolated from testing data; the backend includes deterministic hash-based train/val/test splitting (`backend/app/services/dataset_manager.py`) with mathematical proof of zero data leakage (`assert_zero_leakage`).
 - The backend includes Alembic database migrations (`backend/alembic/`), multi-stage unprivileged Docker containerization, local `docker-compose.yml` with PostgreSQL 16 bound to localhost loopback, and automated GitHub Actions CI/CD workflows (`.github/workflows/ci.yml` and `.github/workflows/deploy-cloud-run.yml`).
-- Both frontend test suite (81 tests) and backend test suites (13 attack vectors + 8 system subsystems) pass with 0 failures.
+- Both frontend test suite (82 tests) and backend test suites (14 attack vectors + 9 system subsystems) pass with 0 failures.
+- 15-Day Security Digest & Database Retention Lifecycle:
+  - When the user clicks "Send 15-Day Digest Now" in the Side Panel (or on automatic 15-day cycle), the extension compiles all scanned email threat reports and all webmail URL click history within the 15-day rolling window.
+  - Generates a high-contrast responsive HTML security digest report containing two full audit sections: (1) 15-Day Email Security Reports with sender, receiver, time-slab, ML risk score, breakdown, threat vectors, and in-email link clicks; (2) Comprehensive 15-Day Webmail URL Click Audit Trail with defanged destinations, email context, click timestamps, threat levels, and user action outcomes (proceeded vs blocked).
+  - Delivers the email report to the user's authenticated address via the Google Apps Script Web App relay (`APPS_SCRIPT_URL`) with fallback to SMTP / autonomous preview.
+  - 15-Day Rolling Database Retention Purge: Automatically purges scan audit logs (`scan_audit_logs`), URL click history (`url_clicks`), and past digest logs (`security_digest_logs`) older than 15 days (`timestamp < now - 15 days`) from Neon PostgreSQL, keeping zero email or click history beyond 15 days. Also trims local browser storage (`safeinbox_15day_email_records` and `webmail_url_clicks`) beyond 15 days.
 - Active Database Connection: The backend is connected to the user's live **Neon Lakebase Postgres** instance (`ep-summer-union-a134dbgc-pooler.ap-southeast-1.aws.neon.tech/neondb`, PostgreSQL 18.6). All 7 core application tables (`users`, `terms_consents`, `threat_urls`, `scan_audit_logs`, `feedback_records`, `security_digest_logs`, `url_clicks`) and migration tracking (`alembic_version` at revision `e5f6a7b8c9d0`) are fully synchronized and verified with live round-trip testing.
 - Sign-In & Sign-Up Enterprise Security:
   - 1 Email ID = 1 Account: Strict unique email constraint enforced at PostgreSQL database schema and API layer (`users.email` unique index, lowercase normalization, duplicate registration blocked with 400 Bad Request).
@@ -28,6 +33,33 @@
   - PostgreSQL Injection & Attack Hardening: Zero raw SQL interpolation (100% SQLAlchemy 2.0 ORM parameterized binding), email regex defanging against quotes, semicolons, comments, and null bytes, dummy scrypt constant-time execution against email enumeration, sliding-window rate limiting per IP and email, account lockout after 5 consecutive failures, and Bearer token revocation.
 
 ## Change log
+
+### 2026-11-20 — 15-Day Security Digest Email with URL Click History & 15-Day Database Retention Purge
+
+- 15-Day Security Digest Email Compilation & Delivery:
+  - Enhanced `extension/src/background/serviceWorker.js` (`get15DayDigestData` & `dispatch15DayDigestNow`):
+    - Corrected user email resolution to prioritize `auth.user.email` from `safeinbox_auth`, ensuring real authenticated emails receive the report.
+    - Aggregates all webmail link clicks from `webmail_url_clicks` and in-email clicked URLs across the 15-day rolling window (`timestamp >= now - 15 days`).
+    - Fixed cloud backend URL discovery to use `await getEffectiveBackendUrl()`, dispatching to `POST /api/v1/digest/send` on Render (`https://safeinbox-ai.onrender.com`).
+    - Attached Bearer authentication header to cloud digest dispatch requests when logged in.
+  - Enhanced HTML Email Report Generator (`backend/app/services/digest_service.py` & `serviceWorker.js`):
+    - Added dedicated **"15-Day Webmail URL Click Audit Trail"** section rendering defanged destinations, email context, exact click timestamps, risk scores, badges, and user action outcomes.
+    - Included official **"15-Day Privacy Lifecycle"** disclosure explaining the automatic purge policy.
+- 15-Day Rolling Database Retention Purge:
+  - Implemented `purge_expired_15day_history(db, user_email, days=15)` in `backend/app/services/digest_service.py`:
+    - Automatically executed on every digest dispatch (`POST /api/v1/digest/send`) and available via dedicated endpoint `POST /api/v1/digest/purge`.
+    - Permanently deletes records older than 15 days (`< now - 15 days`) from `scan_audit_logs`, `url_clicks`, and `security_digest_logs` in Neon PostgreSQL.
+    - Enforced 15-day pruning in `chrome.storage.local` (`safeinbox_15day_email_records` and `webmail_url_clicks`) keeping client storage synchronized.
+- Side Panel UI Enhancements (`extension/src/ui/sidepanelController.js`):
+  - Updated status messages to distinguish Google Apps Script, SMTP, and autonomous delivery modes.
+  - Displays purged database record count in status feedback upon completion.
+- Validation:
+  - Extension test suite: all 82 tests passed (`npm test`).
+  - Backend whole system test suite: all 9 subsystems passed (`test_entire_system.py`).
+  - Backend attack test suite: all 14 vectors passed (`test_auth_security.py`).
+  - Standalone digest and retention check: passed (`run_digest_check.py`).
+  - Live Google Apps Script relay: verified live email delivery with `HTTP 200 {"success": true}`.
+  - Live Neon PostgreSQL database purge: verified successful deletion of expired test records older than 15 days.
 
 ### 2026-11-19 — Render Cloud Deployment & Extension Default Endpoint Integration
 

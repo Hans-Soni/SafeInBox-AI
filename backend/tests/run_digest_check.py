@@ -1,19 +1,16 @@
-"""Standalone verification for 15-day digest HTML generation and endpoints."""
+"""Standalone verification for 15-day digest HTML generation and URL click history."""
 
 import sys
 import os
-import asyncio
 
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
 
 from app.services.digest_service import generate_digest_html
-from app.schemas.digest import EmailRecordItem, UrlClickItem
-from app.main import app
-from httpx import ASGITransport, AsyncClient
+from app.schemas.digest import EmailRecordItem, UrlClickItem, DigestSendRequest
 
 
-def test_html():
-    print("[*] Testing generate_digest_html...")
+def test_html_with_clicks():
+    print("[*] Testing generate_digest_html with email records and URL clicks...")
     records = [
         EmailRecordItem(
             id="rec_1",
@@ -55,25 +52,41 @@ def test_html():
         )
     ]
 
+    extra_clicks = [
+        UrlClickItem(
+            url="https://external-service.org/action",
+            defanged="hxxps://external-service[.]org/action",
+            risk_score=45.0,
+            risk_level="SUSPICIOUS",
+            timestamp="2026-11-02 14:15:00",
+            email_subject="Action required on external portal",
+            sender="service@external-service.org",
+            proceeded=False
+        )
+    ]
+
     html_out = generate_digest_html(
         user_email="target.user@company.com",
         user_name="Target User",
         period_start="2026-10-18",
         period_end="2026-11-02",
-        records=records
+        records=records,
+        url_clicks=extra_clicks
     )
 
     assert "target.user@company.com" in html_out
     assert "Target User" in html_out
     assert "alerts@bank-verify.com" in html_out
     assert "hxxps://bank-verify[.]com/login.php" in html_out
+    assert "hxxps://external-service[.]org/action" in html_out
     assert "ML Score: 85/100 (CRITICAL)" in html_out
+    assert "15-Day Webmail URL Click Audit Trail" in html_out
+    assert "15-Day Privacy Lifecycle" in html_out
     print(f"[*] generate_digest_html passed successfully ({len(html_out)} chars generated)")
 
 
 def test_schemas_and_preview():
     print("[*] Testing DigestSendRequest schema validation and preview generation...")
-    from app.schemas.digest import DigestSendRequest
     payload = DigestSendRequest(
         user_email="security.audit@safeinbox.ai",
         user_name="Audit Test User",
@@ -103,24 +116,37 @@ def test_schemas_and_preview():
                     )
                 ]
             )
+        ],
+        url_clicks=[
+            UrlClickItem(
+                url="https://doc-share.biz/download",
+                defanged="hxxps://doc-share[.]biz/download",
+                risk_score=70.0,
+                risk_level="HIGH",
+                timestamp="2026-11-01 11:30:00",
+                email_subject="Direct Deposit Verification Required",
+                proceeded=True
+            )
         ]
     )
     assert payload.user_email == "security.audit@safeinbox.ai"
     assert len(payload.records) == 1
+    assert len(payload.url_clicks) == 1
     html = generate_digest_html(
         user_email=payload.user_email,
         user_name=payload.user_name,
         period_start=payload.period_start,
         period_end=payload.period_end,
-        records=payload.records
+        records=payload.records,
+        url_clicks=payload.url_clicks
     )
     assert "Direct Deposit Verification Required" in html
     assert "hxxp://scam-payroll[.]org/verify" in html
+    assert "hxxps://doc-share[.]biz/download" in html
     print("[*] DigestSendRequest validation and preview generation PASSED")
 
 
 if __name__ == "__main__":
-    test_html()
+    test_html_with_clicks()
     test_schemas_and_preview()
-    print("\nALL 15-DAY DIGEST BACKEND CHECKS PASSED!\n")
-
+    print("\nALL 15-DAY DIGEST AND RETENTION CHECKS PASSED!\n")

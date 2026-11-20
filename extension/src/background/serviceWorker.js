@@ -1040,20 +1040,54 @@ function escapeHtmlDigest(str) {
     .replace(/'/g, "&#39;");
 }
 
-function generateLocalDigestHtml(userEmail, userName, periodStart, periodEnd, records) {
+function generateLocalDigestHtml(userEmail, userName, periodStart, periodEnd, records, urlClicks = []) {
   const safeEmail = escapeHtmlDigest(userEmail || "user@safeinbox.local");
   const safeName = escapeHtmlDigest(userName || "SafeInbox User");
   const totalEmails = records.length;
   const threats = records.filter(r => (r.composite_risk >= 35) || ["HIGH", "CRITICAL", "MEDIUM"].includes(r.risk_level));
   const threatCount = threats.length;
   const safeCount = totalEmails - threatCount;
-  const totalClicks = records.reduce((acc, r) => acc + (Array.isArray(r.clicked_urls) ? r.clicked_urls.length : 0), 0);
+
+  // Aggregate all URL clicks from explicit urlClicks and individual email clicked_urls
+  const seenClickKeys = new Set();
+  const aggregatedClicks = [];
+
+  (Array.isArray(urlClicks) ? urlClicks : []).forEach(c => {
+    const key = `${c.url}|${c.timestamp}`;
+    if (!seenClickKeys.has(key)) {
+      seenClickKeys.add(key);
+      aggregatedClicks.push(c);
+    }
+  });
+
+  records.forEach(r => {
+    if (Array.isArray(r.clicked_urls)) {
+      r.clicked_urls.forEach(c => {
+        const key = `${c.url}|${c.timestamp}`;
+        if (!seenClickKeys.has(key)) {
+          seenClickKeys.add(key);
+          aggregatedClicks.push({
+            url: c.url,
+            defanged: c.defanged,
+            risk_score: c.risk_score,
+            risk_level: c.risk_level,
+            timestamp: c.timestamp,
+            proceeded: c.proceeded !== false,
+            email_subject: r.subject || "(Email Link)",
+            sender: r.sender || "Webmail Sender"
+          });
+        }
+      });
+    }
+  });
+
+  const totalClicks = aggregatedClicks.length;
 
   let cardsHtml = "";
   if (records.length === 0) {
     cardsHtml = `
       <div style="background:#0f172a;border:1px solid #1e293b;border-radius:10px;padding:24px;text-align:center;color:#94a3b8;font-size:14px;">
-        No webmail scan or click activity recorded during this 15-day time-slab.
+        No webmail scan activity recorded during this 15-day time-slab.
       </div>
     `;
   } else {
@@ -1108,7 +1142,7 @@ function generateLocalDigestHtml(userEmail, userName, periodStart, periodEnd, re
             <div>
               <span style="font-size:15px;font-weight:bold;color:#f8fafc;">#${idx + 1}. ${escapeHtmlDigest(rec.subject || '(No Subject)')}</span>
             </div>
-            <span style="background:${badgeBg};color:${badgeColor};border:1px solid ${badgeColor};padding:3px 10px;border-radius:12px;font-size:12px;font-weight:bold;white-space:nowrap;">
+            <span style="background:${badgeBg};color:${badgeColor};border:1px solid {badgeColor};padding:3px 10px;border-radius:12px;font-size:12px;font-weight:bold;white-space:nowrap;">
               ML Score: ${Math.round(rec.composite_risk || 0)}/100 (${escapeHtmlDigest(rec.risk_level || 'SAFE')})
             </span>
           </div>
@@ -1132,6 +1166,53 @@ function generateLocalDigestHtml(userEmail, userName, periodStart, periodEnd, re
           </table>
           ${vectorsBadge}
           ${clicksHtml}
+        </div>
+      `;
+    });
+  }
+
+  // Render dedicated 15-day URL click history section
+  let urlClicksHtml = "";
+  if (aggregatedClicks.length === 0) {
+    urlClicksHtml = `
+      <div style="background:#0f172a;border:1px solid #1e293b;border-radius:10px;padding:20px;text-align:center;color:#94a3b8;font-size:13px;">
+        No hyperlink clicks were performed in webmail during this 15-day audit period.
+      </div>
+    `;
+  } else {
+    aggregatedClicks.forEach((click, cIdx) => {
+      const cThreat = (click.risk_score >= 35) || ["SUSPICIOUS", "MALICIOUS", "THREAT", "HIGH", "CRITICAL"].includes(click.risk_level);
+      const cBadgeColor = click.risk_score >= 60 ? "#ef4444" : (click.risk_score >= 35 ? "#f59e0b" : "#10b981");
+      const cBadgeBg = click.risk_score >= 60 ? "#450a0a" : (click.risk_score >= 35 ? "#451a03" : "#064e3b");
+      const cBorder = cThreat ? "#991b1b" : "#1e293b";
+      const cDefanged = click.defanged || escapeHtmlDigest(String(click.url || "").replace(/\./g, "[.]"));
+      const cTime = click.timestamp ? String(click.timestamp) : "Recorded";
+      const cContext = click.email_subject || click.sender || "(Webmail Link)";
+      const cActionText = click.proceeded !== false ? "✓ Proceeded" : "✋ Blocked/Aborted";
+      const cActionColor = click.proceeded !== false ? "#10b981" : "#ef4444";
+
+      urlClicksHtml += `
+        <div style="background:#0f172a;border:1px solid ${cBorder};border-radius:8px;padding:12px 16px;margin-bottom:10px;">
+          <div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:6px;">
+            <div>
+              <span style="font-size:11px;color:#94a3b8;font-weight:bold;margin-right:6px;">#${cIdx + 1}</span>
+              <span style="font-family:monospace;color:#38bdf8;font-size:13px;word-break:break-all;">${escapeHtmlDigest(cDefanged)}</span>
+            </div>
+            <span style="background:${cBadgeBg};color:${cBadgeColor};border:1px solid ${cBadgeColor};padding:2px 8px;border-radius:10px;font-size:11px;font-weight:bold;white-space:nowrap;margin-left:10px;">
+              ${Math.round(click.risk_score || 0)}/100 (${escapeHtmlDigest(click.risk_level || 'AUDITED')})
+            </span>
+          </div>
+          <div style="display:flex;justify-content:space-between;align-items:center;font-size:12px;color:#94a3b8;flex-wrap:wrap;gap:6px;">
+            <div>
+              <span style="color:#64748b;">Email Context:</span> <strong style="color:#e2e8f0;">${escapeHtmlDigest(cContext)}</strong>
+            </div>
+            <div>
+              <span style="color:#64748b;">Clicked At:</span> <span style="color:#cbd5e1;">${escapeHtmlDigest(cTime)}</span>
+              <span style="margin-left:8px;padding:2px 6px;border-radius:4px;font-size:10px;background:#1e293b;color:${cActionColor};font-weight:600;">
+                ${cActionText}
+              </span>
+            </div>
+          </div>
         </div>
       `;
     });
@@ -1192,11 +1273,21 @@ function generateLocalDigestHtml(userEmail, userName, periodStart, periodEnd, re
                   </td>
                 </tr>
               </table>
-              <div style="font-size:16px;font-weight:bold;color:#f8fafc;margin-bottom:14px;">
-                📋 15-Day Time-Slab Records (Sender, Receiver, ML Scores &amp; Clicks)
+
+              <!-- Section 1: Email Threat Reports -->
+              <div style="font-size:16px;font-weight:bold;color:#f8fafc;margin-bottom:14px;display:flex;align-items:center;">
+                📋 15-Day Email Security Reports (Sender, Receiver &amp; ML Threat Scores)
               </div>
               ${cardsHtml}
-              <div style="background:#0c192c;border:1px solid #1e3a8a;border-radius:8px;padding:16px;margin-top:20px;">
+
+              <!-- Section 2: Comprehensive URL Click History -->
+              <div style="font-size:16px;font-weight:bold;color:#f8fafc;margin-top:24px;margin-bottom:14px;display:flex;align-items:center;">
+                🔗 15-Day Webmail URL Click Audit Trail (${totalClicks})
+              </div>
+              ${urlClicksHtml}
+
+              <!-- Guidance Box -->
+              <div style="background:#0c192c;border:1px solid #1e3a8a;border-radius:8px;padding:16px;margin-top:24px;">
                 <div style="font-size:13px;font-weight:bold;color:#60a5fa;margin-bottom:4px;">
                   💡 Autonomous Security Recommendation:
                 </div>
@@ -1209,7 +1300,10 @@ function generateLocalDigestHtml(userEmail, userName, periodStart, periodEnd, re
           <tr>
             <td style="background:#030712;border-top:1px solid #1e293b;padding:20px 24px;text-align:center;font-size:11px;color:#64748b;">
               <p style="margin:0 0 4px 0;">SafeInbox AI &bull; Autonomous Client-Side Threat Intelligence</p>
-              <p style="margin:0;">This scheduled report is automatically generated every 15 days for your account. Confidential &amp; Encrypted.</p>
+              <p style="margin:0 0 4px 0;">This scheduled report is automatically generated every 15 days for your account. Confidential &amp; Encrypted.</p>
+              <p style="margin:4px 0 0 0;color:#94a3b8;font-size:11px;">
+                ⏳ <strong>15-Day Privacy Lifecycle:</strong> Scanned email audit records and URL click history are retained for 15 days, after which they are permanently cleared from our database.
+              </p>
             </td>
           </tr>
         </table>
@@ -1230,7 +1324,8 @@ async function get15DayDigestData() {
       totalEmails: 0,
       threatCount: 0,
       clickCount: 0,
-      records: []
+      records: [],
+      urlClicks: []
     };
   }
 
@@ -1238,20 +1333,82 @@ async function get15DayDigestData() {
     chrome.storage.local.get([
       DIGEST_RECORDS_KEY,
       DIGEST_LAST_SENT_KEY,
+      "webmail_url_clicks",
       "safeinbox_auth",
       "safeinbox_user_session"
     ], (res) => {
-      const records = Array.isArray(res && res[DIGEST_RECORDS_KEY]) ? res[DIGEST_RECORDS_KEY] : [];
+      const now = Date.now();
+      const cutoff = now - DIGEST_INTERVAL_MS;
+
+      const rawRecords = Array.isArray(res && res[DIGEST_RECORDS_KEY]) ? res[DIGEST_RECORDS_KEY] : [];
+      // Rolling 15-day window: filter email records within past 15 days
+      const records = rawRecords.filter(r => (r.timestamp || now) >= cutoff);
+
       const auth = res && res.safeinbox_auth;
       const session = res && res.safeinbox_user_session;
-      const userEmail = (auth && auth.email) || (session && session.email) || "guest@safeinbox.local";
-      const userName = (auth && auth.user && auth.user.full_name) || (session && session.name) || "SafeInbox User";
-      const lastSent = (res && res[DIGEST_LAST_SENT_KEY]) || (Date.now() - DIGEST_INTERVAL_MS);
+      const userEmail = (auth && auth.user && auth.user.email) ||
+                        (session && session.email) ||
+                        (auth && auth.email) ||
+                        "guest@safeinbox.local";
+      const userName = (auth && auth.user && auth.user.full_name) ||
+                       (session && session.name) ||
+                       "SafeInbox User";
+      const lastSent = (res && res[DIGEST_LAST_SENT_KEY]) || cutoff;
       const periodStart = new Date(lastSent).toISOString().slice(0, 10);
-      const periodEnd = new Date().toISOString().slice(0, 10);
+      const periodEnd = new Date(now).toISOString().slice(0, 10);
 
       const threatCount = records.filter(r => (r.composite_risk >= 35) || ["HIGH", "CRITICAL", "MEDIUM"].includes(r.risk_level)).length;
-      const clickCount = records.reduce((acc, r) => acc + (Array.isArray(r.clicked_urls) ? r.clicked_urls.length : 0), 0);
+
+      // Aggregate all URL clicks within the 15-day window
+      const storedClicks = Array.isArray(res && res["webmail_url_clicks"]) ? res["webmail_url_clicks"] : [];
+      const validStoredClicks = storedClicks.filter(c => (c.timestamp || now) >= cutoff);
+
+      const seenClickKeys = new Set();
+      const unifiedClicks = [];
+
+      // 1. From webmail_url_clicks store
+      validStoredClicks.forEach(c => {
+        const key = `${c.url}|${c.timestamp || c.date_iso}`;
+        if (!seenClickKeys.has(key)) {
+          seenClickKeys.add(key);
+          unifiedClicks.push({
+            url: c.url,
+            defanged: c.defanged || escapeHtmlDigest(String(c.url || "").replace(/\./g, "[.]")),
+            risk_score: typeof c.risk_score === "number" ? c.risk_score : (c.riskScore || 0),
+            risk_level: c.risk_level || c.riskLevel || "AUDITED",
+            timestamp: c.date_iso || (c.timestamp ? new Date(c.timestamp).toISOString() : new Date().toISOString()),
+            proceeded: c.proceeded !== false,
+            email_subject: c.email_subject || c.emailSubject || "(Webmail Link)",
+            sender: c.sender || "Webmail Sender",
+            source: c.source || "email_body_link"
+          });
+        }
+      });
+
+      // 2. From individual email records' clicked_urls
+      records.forEach(r => {
+        if (Array.isArray(r.clicked_urls)) {
+          r.clicked_urls.forEach(c => {
+            const key = `${c.url}|${c.timestamp}`;
+            if (!seenClickKeys.has(key)) {
+              seenClickKeys.add(key);
+              unifiedClicks.push({
+                url: c.url,
+                defanged: c.defanged || escapeHtmlDigest(String(c.url || "").replace(/\./g, "[.]")),
+                risk_score: typeof c.risk_score === "number" ? c.risk_score : 0,
+                risk_level: c.risk_level || "AUDITED",
+                timestamp: c.timestamp || r.date_iso || new Date().toISOString(),
+                proceeded: c.proceeded !== false,
+                email_subject: r.subject || "(Email Link)",
+                sender: r.sender || "Webmail Sender",
+                source: "email_body_link"
+              });
+            }
+          });
+        }
+      });
+
+      const clickCount = unifiedClicks.length;
 
       resolve({
         userEmail,
@@ -1262,7 +1419,8 @@ async function get15DayDigestData() {
         threatCount,
         clickCount,
         nextDispatchDue: lastSent + DIGEST_INTERVAL_MS,
-        records
+        records,
+        urlClicks: unifiedClicks
       });
     });
   });
@@ -1276,7 +1434,8 @@ async function preview15DayDigest(targetEmail = null) {
     data.userName,
     data.periodStart,
     data.periodEnd,
-    data.records
+    data.records,
+    data.urlClicks
   );
   return {
     userEmail: effectiveEmail,
@@ -1303,37 +1462,39 @@ async function dispatch15DayDigestNow({ force = false, targetEmail = null, isAut
     };
   }
 
-  // Check if backend cloud URL is configured
-  let cloudUrl = "";
-  try {
-    const cloudRes = await new Promise(r => chrome.storage.local.get(["cloud_backend_url"], r));
-    cloudUrl = (cloudRes && cloudRes.cloud_backend_url) ? cloudRes.cloud_backend_url.replace(/\/+$/, "") : "";
-  } catch {}
+  // Get active backend URL
+  const cloudUrl = await getEffectiveBackendUrl();
 
   const payload = {
     user_email: effectiveEmail,
     user_name: data.userName,
     period_start: data.periodStart,
     period_end: data.periodEnd,
-    records: data.records
+    records: data.records,
+    url_clicks: data.urlClicks
   };
 
   let dispatchMode = "local_autonomous";
   let deliveryNote = "Compiled and generated locally (autonomous extension mode).";
   let renderedHtml = "";
+  let purgedCount = 0;
 
   if (cloudUrl && typeof fetch === "function") {
     try {
+      const authHeaders = await getAuthHeader();
+      const reqHeaders = { "Content-Type": "application/json", ...authHeaders };
+
       const resp = await fetch(`${cloudUrl}/api/v1/digest/send`, {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: reqHeaders,
         body: JSON.stringify(payload)
       });
       if (resp.ok) {
         const json = await resp.json();
-        dispatchMode = json.dispatch_mode || "smtp";
-        deliveryNote = json.message || "Delivered via backend SMTP";
+        dispatchMode = json.dispatch_mode || "apps_script";
+        deliveryNote = json.message || "Delivered via cloud backend";
         renderedHtml = json.preview_html || "";
+        purgedCount = json.purged_records || 0;
       }
     } catch (e) {
       console.warn("Backend digest send failed, falling back to local digest generation:", e);
@@ -1346,9 +1507,18 @@ async function dispatch15DayDigestNow({ force = false, targetEmail = null, isAut
       data.userName,
       data.periodStart,
       data.periodEnd,
-      data.records
+      data.records,
+      data.urlClicks
     );
   }
+
+  // 15-Day Local Storage Retention Purge: remove records and clicks older than 15 days from local storage
+  const cutoff = Date.now() - DIGEST_INTERVAL_MS;
+  const prunedRecords = data.records.filter(r => (r.timestamp || Date.now()) >= cutoff);
+  const prunedClicks = (data.urlClicks || []).filter(c => {
+    const ts = typeof c.timestamp === "number" ? c.timestamp : Date.parse(c.timestamp);
+    return isNaN(ts) || ts >= cutoff;
+  });
 
   // Update last sent time and dispatch history
   await new Promise(r => {
@@ -1362,13 +1532,16 @@ async function dispatch15DayDigestNow({ force = false, targetEmail = null, isAut
         total_emails: data.totalEmails,
         threat_count: data.threatCount,
         click_count: data.clickCount,
+        purged_records: purgedCount,
         dispatch_mode: dispatchMode,
         delivery_note: deliveryNote
       });
       const trimmedHistory = history.slice(-20);
       chrome.storage.local.set({
         [DIGEST_LAST_SENT_KEY]: Date.now(),
-        [DIGEST_HISTORY_KEY]: trimmedHistory
+        [DIGEST_HISTORY_KEY]: trimmedHistory,
+        [DIGEST_RECORDS_KEY]: prunedRecords,
+        "webmail_url_clicks": prunedClicks
       }, r);
     });
   });
@@ -1380,6 +1553,7 @@ async function dispatch15DayDigestNow({ force = false, targetEmail = null, isAut
     total_emails: data.totalEmails,
     threats_detected: data.threatCount,
     total_clicks: data.clickCount,
+    purged_records: purgedCount,
     dispatch_mode: dispatchMode,
     delivery_note: deliveryNote,
     preview_html: renderedHtml

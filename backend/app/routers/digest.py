@@ -1,6 +1,6 @@
 """API router for 15-day email security digest dispatch and preview."""
 
-from typing import List
+from typing import List, Optional
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -10,9 +10,14 @@ from app.models.digest import SecurityDigestLog
 from app.schemas.digest import (
     DigestSendRequest,
     DigestSendResponse,
-    DigestHistoryItem
+    DigestHistoryItem,
+    DigestPurgeResponse
 )
-from app.services.digest_service import dispatch_15_day_digest, generate_digest_html
+from app.services.digest_service import (
+    dispatch_15_day_digest,
+    generate_digest_html,
+    purge_expired_15day_history
+)
 
 router = APIRouter(prefix="/api/v1/digest", tags=["Security Digest"])
 
@@ -27,8 +32,9 @@ async def send_15_day_digest(
     Contains:
     - Senders and receivers
     - Time-slab records
-    - ML threat scores
-    - All URL clicks within each email
+    - ML threat scores and vectors
+    - Complete 15-day URL click history
+    - Automatically purges database records older than 15 days
     """
     if not payload.user_email:
         raise HTTPException(
@@ -36,13 +42,17 @@ async def send_15_day_digest(
             detail="Valid user email is required for 15-day digest delivery."
         )
 
-    success, message, dispatch_mode, preview_html = await dispatch_15_day_digest(db, payload)
+    success, message, dispatch_mode, preview_html, purge_info = await dispatch_15_day_digest(db, payload)
 
     total_threats = sum(
         1 for r in payload.records
         if r.composite_risk >= 35 or r.risk_level in ("HIGH", "CRITICAL", "MEDIUM")
     )
-    total_clicks = sum(len(r.clicked_urls) for r in payload.records)
+    click_urls_set = set(c.url for c in payload.url_clicks)
+    for r in payload.records:
+        for c in r.clicked_urls:
+            click_urls_set.add(c.url)
+    total_clicks = max(len(click_urls_set), len(payload.url_clicks))
 
     return DigestSendResponse(
         success=success,
@@ -52,6 +62,7 @@ async def send_15_day_digest(
         total_emails=len(payload.records),
         threats_detected=total_threats,
         total_clicks=total_clicks,
+        purged_records=purge_info.get("total_purged", 0),
         dispatch_mode=dispatch_mode,
         preview_html=preview_html
     )
@@ -65,14 +76,40 @@ async def preview_15_day_digest(payload: DigestSendRequest):
         user_name=payload.user_name or "SafeInbox AI User",
         period_start=payload.period_start,
         period_end=payload.period_end,
-        records=payload.records
+        records=payload.records,
+        url_clicks=payload.url_clicks
     )
+    click_urls_set = set(c.url for c in payload.url_clicks)
+    for r in payload.records:
+        for c in r.clicked_urls:
+            click_urls_set.add(c.url)
+    total_clicks = max(len(click_urls_set), len(payload.url_clicks))
+
     return {
         "user_email": payload.user_email,
         "period": f"{payload.period_start} to {payload.period_end}",
         "total_emails": len(payload.records),
+        "total_clicks": total_clicks,
         "html": html_content
     }
+
+
+@router.post("/purge", response_model=DigestPurgeResponse, summary="Purge email history and URL clicks older than 15 days")
+async def purge_expired_history(
+    user_email: Optional[str] = None,
+    days: int = 15,
+    db: AsyncSession = Depends(get_db)
+):
+    """
+    Clear all email scan logs, URL clicks, and past digest logs older than 15 days
+    from the database to enforce the 15-day rolling retention limit.
+    """
+    result = await purge_expired_15day_history(db, user_email=user_email, days=days)
+    return DigestPurgeResponse(
+        success=True,
+        message=f"Purged {result['total_purged']} expired records older than {days} days from database.",
+        **result
+    )
 
 
 @router.get("/history", response_model=List[DigestHistoryItem], summary="Get past digest logs for user")
@@ -105,4 +142,3 @@ async def get_digest_history(
         )
         for log in logs
     ]
-
