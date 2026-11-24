@@ -81,3 +81,19 @@ class EmailOTPVerification(Base):
     expires_at = Column(DateTime(timezone=True), nullable=False)
     created_at = Column(DateTime(timezone=True), default=utcnow, nullable=False)
 
+
+class RefreshToken(Base):
+    """Secure single-use refresh token for Refresh Token Rotation (RTR)."""
+
+    __tablename__ = "refresh_tokens"
+
+    id = Column(Integer, primary_key=True, index=True)
+    user_id = Column(Integer, ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True)
+    user_index_id = Column(String(64), index=True, nullable=True)
+    token_hash = Column(String(64), unique=True, index=True, nullable=False)
+    family_id = Column(String(64), index=True, nullable=False)
+    is_revoked = Column(Boolean, default=False, nullable=False)
+    expires_at = Column(DateTime(timezone=True), index=True, nullable=False)
+    created_at = Column(DateTime(timezone=True), default=utcnow, nullable=False)
+
+

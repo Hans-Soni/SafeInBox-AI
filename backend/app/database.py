@@ -75,6 +75,10 @@ async def init_db() -> None:
                 "ALTER TABLE url_clicks ADD COLUMN IF NOT EXISTS encrypted_payload TEXT",
                 "ALTER TABLE security_digest_logs ADD COLUMN IF NOT EXISTS is_encrypted BOOLEAN DEFAULT FALSE",
                 "ALTER TABLE security_digest_logs ADD COLUMN IF NOT EXISTS encrypted_payload TEXT",
+                "CREATE TABLE IF NOT EXISTS refresh_tokens (id SERIAL PRIMARY KEY, user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE, user_index_id VARCHAR(64), token_hash VARCHAR(64) UNIQUE NOT NULL, family_id VARCHAR(64) NOT NULL, is_revoked BOOLEAN DEFAULT FALSE NOT NULL, expires_at TIMESTAMPTZ NOT NULL, created_at TIMESTAMPTZ DEFAULT NOW() NOT NULL)",
+                "CREATE INDEX IF NOT EXISTS ix_refresh_tokens_token_hash ON refresh_tokens (token_hash)",
+                "CREATE INDEX IF NOT EXISTS ix_refresh_tokens_family_id ON refresh_tokens (family_id)",
+                "CREATE INDEX IF NOT EXISTS ix_refresh_tokens_user_id ON refresh_tokens (user_id)",
             ]
             for stmt in statements:
                 try:

@@ -10,9 +10,9 @@
 - The extension uses a native Chrome Side Panel (`extension/sidepanel.html`) with Summary, URL Scanner, and Context Scanning views. It accepts a URL or email text and listens for detected open emails on supported webmail pages.
 - Email link targets, raw URLs, `www` links, and bare domains are normalized/deduplicated and scanned sequentially through the shared URL analyzer; sender/subject/body text is assessed separately. The combined email score is the arithmetic mean of text risk and the average URL risk; the highest individual URL risk is also shown.
 - Chrome requires a user gesture to open a native Side Panel, so it cannot auto-open on email navigation. Once opened, the panel refreshes on email changes and active-tab switches. After reloading the extension, refresh the webmail tab to reconnect its content script. Page-level webmail inspection banners continue working with the panel closed.
-- Both URL and Email Text ML models are now fully trained, verified, and bundled:
-  - URL Threat Model: `extension/models/url-threat.onnx` (80 KB) trained on 2,067,566 URLs across 4 corpora with 92.24% holdout accuracy, 91.55% recall, and 0.9790 ROC-AUC.
-  - Email Text Threat Model: `extension/models/email-threat.onnx` (4.29 MB) and `extension/models/email-vocab.json` (335 KB) trained on 101,358 email texts across 5 corpora with 97.31% holdout accuracy, 97.18% recall, and 0.9967 ROC-AUC.
+- Both URL and Email Text ML models are now fully trained, verified, calibrated, and bundled:
+  - URL Threat Model: `extension/models/url-threat.onnx` (194.2 KB) trained on 2,067,566 URLs across 4 corpora with 91.26% holdout accuracy, 91.08% recall, and 0.9744 ROC-AUC, featuring Inception Multi-Scale Character CNN (k=2,3,5,7), Squeeze-and-Excitation channel attention, Dual Pooling (Max + Avg, 192-dim), Focal Loss (gamma=2.0), and Temperature Scaling calibration (T=1.0653).
+  - Email Text Threat Model: `extension/models/email-threat.onnx` (4.64 MB) and `extension/models/email-vocab.json` (343 KB) trained on 101,358 email texts across 5 corpora with 96.37% holdout accuracy, 95.41% recall, 97.03% precision, 0.9949 ROC-AUC, and 2.73% FPR, featuring Multi-Scale n-gram Convolutions (k=2,3,4,5), SE channel attention over 256 channels, Adaptive Concat Pooling (512-dim), Focal Loss (gamma=2.0), and Temperature Scaling calibration (T=0.5259).
   - Both modalities run in dedicated Web workers (`urlInferenceWorker.js` and `textMlWorker.js`), fusing neural network predictions with transparent domain/text heuristics. Browser-side heuristics remain 100% active independently even if models are absent. Safe/Threat labels and local samples are retained in browser storage (latest 100 per type) and optionally synced to the Cloud backend when configured.
 - Privacy boundary: Zero-leak policy for raw email bodies and PII. No email body text, sender/receiver addresses, or subject lines are stored in backend database tables (`ThreatURL`, `ScanAuditLog`) or persistent cloud logs. Only cryptographic SHA-256 digests, threat vectors, risk scores, and sanitized IOCs are retained.
 - Dataset & Storage Separation: URL storage and Text/Email storage are maintained in completely separate pipelines, caches, and database partitions. In the browser extension, `offline_url_feedback` and `offline_text_feedback` occupy separate keys, and `urlThreatScan:` / `emailThreatScan:` caches are distinct. In the backend, `threat_urls` handles URL IOCs while `scan_audit_logs` and `feedback_records` strictly partition URL and TEXT entries. Training data is strictly isolated from testing data; the backend includes deterministic hash-based train/val/test splitting (`backend/app/services/dataset_manager.py`) with mathematical proof of zero data leakage (`assert_zero_leakage`).
@@ -33,6 +33,42 @@
   - PostgreSQL Injection & Attack Hardening: Zero raw SQL interpolation (100% SQLAlchemy 2.0 ORM parameterized binding), email regex defanging against quotes, semicolons, comments, and null bytes, dummy scrypt constant-time execution against email enumeration, sliding-window rate limiting per IP and email, account lockout after 5 consecutive failures, and Bearer token revocation.
 
 ## Change log
+
+### 2026-11-24 — High-Accuracy ML Model Retraining with Focal Loss, SE Attention, and Temperature Calibration
+
+- Enhanced Neural Network Architectures:
+  - URL Threat Classifier (`tools/ml_url/model.py`):
+    - Upgraded from serial CNN to Inception-style multi-scale character convolutions with parallel kernels $k \in \{2, 3, 5, 7\}$ (24 channels each = 96 channels total).
+    - Integrated Squeeze-and-Excitation (SE) channel attention module to dynamically weight discriminative subword channels while suppressing query string noise.
+    - Implemented Dual-Pooling: Adaptive Max Pooling (96-dim, capturing acute threat tokens) combined with Adaptive Average Pooling (96-dim, capturing global character entropy) resulting in a rich 192-dimensional representation.
+    - Added residual skip connection in the dense heuristic feature branch (64 -> 64 -> 48) with GELU activations.
+  - Email Text Threat Classifier (`tools/ml_text/model.py`):
+    - Upgraded multi-scale $n$-gram convolutions ($k \in \{2, 3, 4, 5\}$, 64 filters each = 256 total filters) with SE channel attention.
+    - Integrated Adaptive Concat Pooling (256 max + 256 avg = 512 dimensions) to capture both dominant urgent triggers (e.g. credential harvesting lures) and holistic email tone.
+- Advanced Optimization & Loss Functions (`tools/ml_common.py`):
+  - Implemented Focal Loss ($\gamma = 2.0$, label smoothing $\alpha = 0.05$) with dynamic class weighting. Suppresses gradients from well-classified easy samples to focus learning on hard, ambiguous edge-cases (e.g. AWS S3 presigned URLs, legitimate query parameters, urgent legitimate corporate announcements).
+  - Implemented post-hoc `TemperatureCalibrator` using L-BFGS validation optimization to ensure raw softmax outputs translate directly into calibrated empirical risk probabilities.
+- Multi-Corpus Retraining & Holdout Validation:
+  - URL Threat Model:
+    - Trained across 2,067,566 URLs (1,654,564 train, 206,858 val, 206,144 holdout test).
+    - Holdout test results: URL1 (95.24% acc, 92.61% recall, 0.9861 AUC, 4.17% FPR), URL2 (96.69% acc, 98.73% recall, 0.9977 AUC, 3.91% FPR), URL3 (86.06% acc, 86.22% recall, 0.9520 AUC), URL4 (89.93% acc, 92.12% recall, 0.9689 AUC).
+    - Grand combined holdout: 91.26% Accuracy, 91.08% Recall, 0.9744 ROC-AUC.
+    - Calibrated temperature: $T = 1.0653$.
+    - Exported and verified ONNX model at `extension/models/url-threat.onnx` (194.2 KB).
+  - Email Text Threat Model:
+    - Trained across 101,358 email texts (81,054 train, 10,243 val, 10,061 holdout test).
+    - Validation performance: 96.68% Accuracy, 96.46% F1-score, 0.9954 ROC-AUC, 2.91% FPR.
+    - Grand combined holdout (10,061 unseen texts): 96.37% Accuracy, 97.03% Precision, 95.41% Recall, 96.21% F1-score, 0.9949 ROC-AUC, and 2.73% FPR.
+    - Calibrated temperature: $T = 0.5259$.
+    - Exported and verified ONNX model at `extension/models/email-threat.onnx` (4.64 MB).
+- Enterprise Refresh Token Rotation (RTR) Integration:
+  - Added single-use rotating refresh tokens (15-day expiry) with family tracking (`family_id`), SHA-256 token hashing, and automatic session reuse/theft neutralization.
+  - Proactive client-side token rotation before the 30-minute access token expires.
+  - Verified with 4/4 passing tests in `backend/tests/test_refresh_token_rotation.py`.
+- Validation:
+  - Extension unit tests: all 89 tests passed (`npm test`).
+  - Backend RTR tests: all 4 tests passed (`test_refresh_token_rotation.py`).
+  - ONNX Runtime Web WASM inference verified in extension workers.
 
 ### 2026-11-21 — Zero-Knowledge Client-Side AES-256-GCM Encryption for Cloud Transfers
 

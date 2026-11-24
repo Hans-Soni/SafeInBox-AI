@@ -426,13 +426,45 @@ async function getAuthHeader() {
   if (typeof chrome === "undefined" || !chrome.storage || !chrome.storage.local) return {};
   return new Promise((resolve) => {
     try {
-      chrome.storage.local.get(["safeinbox_auth"], (res) => {
+      chrome.storage.local.get(["safeinbox_auth"], async (res) => {
         const auth = res && res.safeinbox_auth;
-        if (auth && auth.token) {
-          resolve({ "Authorization": `Bearer ${auth.token}` });
-        } else {
+        if (!auth || !auth.token) {
           resolve({});
+          return;
         }
+
+        // Proactive Refresh Token Rotation (RTR):
+        // If access token is older than 25 minutes and we have a valid refresh token,
+        // transparently rotate it with the backend.
+        const now = Date.now();
+        const tokenAge = now - (auth.token_saved_at || auth.saved_at || 0);
+        const ACCESS_TOKEN_TTL_MS = 25 * 60 * 1000; // 25 minutes
+
+        if (tokenAge > ACCESS_TOKEN_TTL_MS && auth.refresh_token) {
+          try {
+            const backendUrl = await getEffectiveBackendUrl();
+            if (backendUrl) {
+              const refreshResp = await fetch(`${backendUrl}/api/v1/auth/refresh`, {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ refresh_token: auth.refresh_token })
+              });
+              if (refreshResp.ok) {
+                const refreshed = await refreshResp.json();
+                auth.token = refreshed.access_token;
+                auth.refresh_token = refreshed.refresh_token;
+                auth.token_saved_at = Date.now();
+                await chrome.storage.local.set({ safeinbox_auth: auth });
+                resolve({ "Authorization": `Bearer ${auth.token}` });
+                return;
+              }
+            }
+          } catch (e) {
+            console.warn("Background auto-refresh failed, using current token:", e);
+          }
+        }
+
+        resolve({ "Authorization": `Bearer ${auth.token}` });
       });
     } catch {
       resolve({});

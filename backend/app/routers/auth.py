@@ -15,8 +15,10 @@ from app.schemas.auth import (
     OTPResendRequest,
     OTPVerifyRequest,
     PasswordChangeRequest,
+    RefreshTokenRequest,
     TermsConsentCreate,
     TermsConsentResponse,
+    TokenRefreshResponse,
     TokenResponse,
     UserResponse,
     UserSignIn,
@@ -28,12 +30,17 @@ from app.services.auth_service import (
     auth_limiter,
     calculate_password_similarity,
     create_access_token,
+    create_refresh_token,
+    decode_access_token,
     dummy_verify_password,
     get_current_user,
     hash_password,
     is_password_in_history,
     levenshtein_distance,
     revoke_token,
+    revoke_user_refresh_tokens,
+    rotate_refresh_token,
+    save_refresh_token,
     verify_password
 )
 from app.services.log_security import emit_security_audit_log
@@ -67,10 +74,20 @@ def get_client_ip(request: Request) -> str:
     return "127.0.0.1"
 
 
+def ensure_utc(dt: datetime | None) -> datetime:
+    """Ensure a datetime object is timezone-aware in UTC."""
+    if dt is None:
+        return utcnow()
+    if dt.tzinfo is None:
+        return dt.replace(tzinfo=timezone.utc)
+    return dt.astimezone(timezone.utc)
+
+
 def build_user_response(user: User) -> UserResponse:
-    """Build UserResponse with unique Index ID, 30-day password expiry and 7-day session lifetime metadata."""
+    """Build UserResponse with unique Index ID, 30-day password expiry and 15-day session lifetime metadata."""
     now = utcnow()
-    pwd_changed = user.password_changed_at or user.created_at or now
+    raw_pwd = user.password_changed_at or user.created_at or now
+    pwd_changed = ensure_utc(raw_pwd)
     age_days = (now - pwd_changed).days
     resolved_idx = getattr(user, "index_id", None) or generate_user_index_id(user.email)
     return UserResponse(
@@ -82,8 +99,45 @@ def build_user_response(user: User) -> UserResponse:
         password_changed_at=pwd_changed,
         password_expired=(age_days >= 30),
         password_age_days=age_days,
-        session_lifetime_days=7,
-        created_at=user.created_at or now
+        session_lifetime_days=15,
+        created_at=ensure_utc(user.created_at or now)
+    )
+
+
+async def issue_token_response(
+    db: AsyncSession,
+    user: User,
+    consent_resp: TermsConsentResponse | None = None,
+    password_expired: bool = False,
+    password_age_days: int = 0
+) -> TokenResponse:
+    """Generate short-lived access token (30m) and single-use rotating refresh token (15d)."""
+    user_idx = getattr(user, "index_id", None) or generate_user_index_id(user.email)
+    access_token = create_access_token({"sub": user.email, "user_id": user.id, "index_id": user_idx})
+    raw_refresh, fam_id, exp_refresh = create_refresh_token(
+        user_id=user.id,
+        user_email=user.email,
+        user_index_id=user_idx
+    )
+    await save_refresh_token(
+        db=db,
+        user_id=user.id,
+        user_index_id=user_idx,
+        raw_refresh_token=raw_refresh,
+        family_id=fam_id,
+        expires_at=exp_refresh
+    )
+    return TokenResponse(
+        access_token=access_token,
+        refresh_token=raw_refresh,
+        token_type="bearer",
+        expires_in_seconds=1800,  # 30 minutes
+        refresh_expires_in_seconds=1296000,  # 15 days
+        session_lifetime_days=15,
+        password_expired=password_expired,
+        password_age_days=password_age_days,
+        user=build_user_response(user),
+        terms_consent=consent_resp
     )
 
 
@@ -238,17 +292,13 @@ async def sign_up(
         details={"user_id": new_user.id, "index_id": new_user.index_id}
     )
 
-    # Issue access token with unique jti identifier and 7-day weekly expiry
-    token = create_access_token({"sub": new_user.email, "user_id": new_user.id, "index_id": new_user.index_id})
-    return TokenResponse(
-        access_token=token,
-        token_type="bearer",
-        expires_in_seconds=604800,  # 7 days (weekly re-login required)
-        session_lifetime_days=7,
+    # Issue access token (30m) and single-use rotating refresh token (15d)
+    return await issue_token_response(
+        db=db,
+        user=new_user,
+        consent_resp=consent_resp,
         password_expired=False,
-        password_age_days=0,
-        user=build_user_response(new_user),
-        terms_consent=consent_resp
+        password_age_days=0
     )
 
 
@@ -630,17 +680,13 @@ async def verify_signup_otp(
         details={"user_id": new_user.id, "index_id": new_user.index_id}
     )
 
-    # Issue access token with 7-day lifetime
-    token = create_access_token({"sub": new_user.email, "user_id": new_user.id, "index_id": new_user.index_id})
-    return TokenResponse(
-        access_token=token,
-        token_type="bearer",
-        expires_in_seconds=604800,  # 7 days
-        session_lifetime_days=7,
+    # Issue access token (30m) and single-use rotating refresh token (15d)
+    return await issue_token_response(
+        db=db,
+        user=new_user,
+        consent_resp=consent_resp,
         password_expired=False,
-        password_age_days=0,
-        user=build_user_response(new_user),
-        terms_consent=consent_resp
+        password_age_days=0
     )
 
 
@@ -878,7 +924,7 @@ async def verify_signin_otp(
     # IMMEDIATELY DELETE OTP FROM EVERYWHERE IN DATABASE
     await cleanup_otp_record(db, email=payload.email, record=otp_record)
 
-    pwd_changed = user.password_changed_at or user.created_at or now
+    pwd_changed = ensure_utc(user.password_changed_at or user.created_at or now)
     pwd_age_days = (now - pwd_changed).days
     is_pwd_expired = (pwd_age_days >= 30)
 
@@ -891,17 +937,13 @@ async def verify_signin_otp(
         details={"user_id": user.id, "password_expired": is_pwd_expired, "password_age_days": pwd_age_days}
     )
 
-    user_idx = getattr(user, "index_id", None) or generate_user_index_id(user.email)
-    token = create_access_token({"sub": user.email, "user_id": user.id, "index_id": user_idx})
-    return TokenResponse(
-        access_token=token,
-        token_type="bearer",
-        expires_in_seconds=1296000,  # 15-day session
-        session_lifetime_days=15,
+    # Issue access token (30m) and single-use rotating refresh token (15d)
+    return await issue_token_response(
+        db=db,
+        user=user,
+        consent_resp=consent_resp,
         password_expired=is_pwd_expired,
-        password_age_days=pwd_age_days,
-        user=build_user_response(user),
-        terms_consent=consent_resp
+        password_age_days=pwd_age_days
     )
 
 
@@ -1100,7 +1142,7 @@ async def sign_in(
         await cleanup_otp_record(db, email=payload.email, record=otp_record)
 
     # 30-Day Password Expiry & Rotation Check
-    pwd_changed = user.password_changed_at or user.created_at or now
+    pwd_changed = ensure_utc(user.password_changed_at or user.created_at or now)
     pwd_age_days = (now - pwd_changed).days
     is_pwd_expired = (pwd_age_days >= 30)
 
@@ -1113,18 +1155,13 @@ async def sign_in(
         details={"user_id": user.id, "password_expired": is_pwd_expired, "password_age_days": pwd_age_days}
     )
 
-    # Issue access token with unique jti identifier and 15-day expiry
-    user_idx = getattr(user, "index_id", None) or generate_user_index_id(user.email)
-    token = create_access_token({"sub": user.email, "user_id": user.id, "index_id": user_idx})
-    return TokenResponse(
-        access_token=token,
-        token_type="bearer",
-        expires_in_seconds=1296000,  # 15 days
-        session_lifetime_days=15,
+    # Issue access token (30m) and single-use rotating refresh token (15d)
+    return await issue_token_response(
+        db=db,
+        user=user,
+        consent_resp=consent_resp,
         password_expired=is_pwd_expired,
-        password_age_days=pwd_age_days,
-        user=build_user_response(user),
-        terms_consent=consent_resp
+        password_age_days=pwd_age_days
     )
 
 
@@ -1473,10 +1510,62 @@ async def login_alias(
     return await sign_in(payload, request, db)
 
 
-@router.post("/signout", summary="Sign out user and invalidate active Bearer token")
+@router.post("/refresh", response_model=TokenRefreshResponse, summary="Rotate single-use refresh token")
+async def refresh_tokens(
+    payload: RefreshTokenRequest,
+    request: Request,
+    db: AsyncSession = Depends(get_db)
+) -> TokenRefreshResponse:
+    """
+    Exchange a valid, single-use refresh token for a new 30-minute access token
+    and a newly rotated 15-day refresh token.
+    Enforces automatic reuse detection: if an already-revoked refresh token is presented,
+    all tokens in the family are instantly terminated.
+    """
+    ip = get_client_ip(request)
+    ua = request.headers.get("User-Agent")
+
+    # Rate limiting: max 30 refreshes per minute per IP
+    is_limited, rem = auth_limiter.is_rate_limited(
+        f"refresh_ip:{ip}",
+        max_attempts=30,
+        window_seconds=60,
+        lockout_seconds=120
+    )
+    if is_limited:
+        raise HTTPException(
+            status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+            detail=f"Too many token refresh requests. Locked for {rem} seconds.",
+            headers={"Retry-After": str(rem)}
+        )
+
+    new_access, new_refresh, user = await rotate_refresh_token(db, payload.refresh_token)
+
+    emit_security_audit_log(
+        event_type="AUTH_TOKEN_ROTATED",
+        outcome="SUCCESS",
+        email=user.email,
+        ip_address=ip,
+        user_agent=ua,
+        details={"user_id": user.id}
+    )
+
+    return TokenRefreshResponse(
+        access_token=new_access,
+        refresh_token=new_refresh,
+        token_type="bearer",
+        expires_in_seconds=1800,
+        refresh_expires_in_seconds=1296000
+    )
+
+
+@router.post("/signout", summary="Sign out user and invalidate active Bearer token and refresh tokens")
 @router.post("/logout", summary="Alias for signout", include_in_schema=False)
-async def sign_out(request: Request) -> dict:
-    """Explicitly invalidate and revoke the client's Bearer access token."""
+async def sign_out(
+    request: Request,
+    db: AsyncSession = Depends(get_db)
+) -> dict:
+    """Explicitly invalidate and revoke the client's Bearer access token and all refresh tokens."""
     ip = get_client_ip(request)
     ua = request.headers.get("User-Agent")
     auth_hdr = request.headers.get("authorization", "")
@@ -1484,6 +1573,14 @@ async def sign_out(request: Request) -> dict:
     if auth_hdr.lower().startswith("bearer "):
         token = auth_hdr[7:].strip()
         revoked = revoke_token(token)
+        claims = decode_access_token(token, check_revocation=False)
+        if claims and claims.get("user_id"):
+            await revoke_user_refresh_tokens(db, claims["user_id"])
+        elif claims and claims.get("sub"):
+            user_res = await db.execute(select(User).where(User.email == claims["sub"]))
+            user = user_res.scalar_one_or_none()
+            if user:
+                await revoke_user_refresh_tokens(db, user.id)
 
     emit_security_audit_log(
         event_type="AUTH_SIGNOUT_SUCCESS",
@@ -1496,7 +1593,7 @@ async def sign_out(request: Request) -> dict:
     return {
         "success": True,
         "revoked": revoked,
-        "message": "Signed out successfully. Authentication token invalidated."
+        "message": "Signed out successfully. Authentication tokens and sessions invalidated."
     }
 
 

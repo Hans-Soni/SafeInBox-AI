@@ -263,16 +263,34 @@ class UserTrackingSummary(BaseModel):
 
 
 class TokenResponse(BaseModel):
-    """Bearer access token and authenticated user payload with weekly session & monthly rotation policies."""
+    """Bearer access token and authenticated user payload with short-lived access and rotating refresh tokens."""
 
     access_token: str
+    refresh_token: str | None = None
     token_type: str = "bearer"
-    expires_in_seconds: int = 604800  # Exactly 7 days (weekly re-login required)
-    session_lifetime_days: int = 7
+    expires_in_seconds: int = 1800  # 30 minutes short-lived access token
+    refresh_expires_in_seconds: int = 1296000  # 15 days
+    session_lifetime_days: int = 15
     password_expired: bool = False
     password_age_days: int = 0
     user: UserResponse
     terms_consent: TermsConsentResponse | None = None
+
+
+class RefreshTokenRequest(BaseModel):
+    """Payload to exchange a single-use refresh token for a new access token and rotated refresh token."""
+
+    refresh_token: str = Field(..., min_length=10, max_length=1024, description="Single-use refresh token")
+
+
+class TokenRefreshResponse(BaseModel):
+    """Response containing a new short-lived access token and newly rotated refresh token."""
+
+    access_token: str
+    refresh_token: str
+    token_type: str = "bearer"
+    expires_in_seconds: int = 1800  # 30 minutes
+    refresh_expires_in_seconds: int = 1296000  # 15 days
 
 
 class OTPRequestResponse(BaseModel):

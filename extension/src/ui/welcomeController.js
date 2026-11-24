@@ -260,11 +260,13 @@
     });
   }
 
-  function saveAuth(token, user, expiresInSeconds = 15 * 24 * 60 * 60) {
+  function saveAuth(token, user, expiresInSeconds = 15 * 24 * 60 * 60, refreshToken = null) {
     return new Promise((resolve) => {
       const authData = {
         token,
+        refresh_token: refreshToken || null,
         user,
+        token_saved_at: Date.now(),
         saved_at: Date.now(),
         expires_at: Date.now() + expiresInSeconds * 1000 // 15-day session lifetime
       };
@@ -578,6 +580,7 @@
         }
 
         token = data.access_token;
+        let refreshToken = data.refresh_token || null;
         user = data.user;
         if (data.terms_consent) {
           clientIp = data.terms_consent.ip_address || clientIp;
@@ -628,7 +631,7 @@
       resetSignInFailures();
 
       // Save Auth Session
-      await saveAuth(token, user);
+      await saveAuth(token, user, 15 * 24 * 60 * 60, refreshToken);
 
       // Cache verified user credentials locally if authenticated from backend
       try {
@@ -868,6 +871,7 @@
           }
 
           const token = data.access_token;
+          const refreshToken = data.refresh_token || null;
           const user = data.user;
           const clientIp = data.terms_consent?.ip_address || "127.0.0.1 (Verified)";
           const agreedAt = data.terms_consent?.agreed_at || new Date().toISOString();
@@ -877,7 +881,7 @@
           resetSignInFailures();
 
           // Save Auth Session with 15-day expiration
-          await saveAuth(token, user, 1296000);
+          await saveAuth(token, user, 1296000, refreshToken);
 
           // Cache verified user credentials locally if authenticated from backend
           try {
@@ -961,6 +965,7 @@
         }
 
         token = data.access_token;
+        const refreshToken = data.refresh_token || null;
         user = data.user;
         if (data.terms_consent) {
           clientIp = data.terms_consent.ip_address || clientIp;
@@ -982,7 +987,7 @@
       }
 
       // Save Auth Session with 15-day expiration
-      await saveAuth(token, user, 1296000);
+      await saveAuth(token, user, 1296000, refreshToken);
 
       // Save Terms Consent Audit Record
       const consentData = {

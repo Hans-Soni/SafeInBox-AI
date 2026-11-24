@@ -1529,11 +1529,22 @@ function setAuthStatus(targetEl, msg, type) {
   targetEl.style.display = "block";
 }
 
-async function saveAuthSession(token, user) {
+async function saveAuthSession(token, user, refreshToken = null) {
+  const existing = await new Promise(r => {
+    if (typeof chrome !== "undefined" && chrome.storage && chrome.storage.local) {
+      chrome.storage.local.get(["safeinbox_auth"], r);
+    } else {
+      r({});
+    }
+  });
+  const prevRefresh = existing && existing.safeinbox_auth && existing.safeinbox_auth.refresh_token;
+
   const sessionObj = {
     token,
+    refresh_token: refreshToken || prevRefresh || null,
     user,
-    saved_at: Date.now(),
+    token_saved_at: Date.now(),
+    saved_at: (existing && existing.safeinbox_auth && existing.safeinbox_auth.saved_at) || Date.now(),
     expires_at: Date.now() + 15 * 24 * 60 * 60 * 1000 // 15-day session lifetime (re-login required)
   };
   if (typeof chrome !== "undefined" && chrome.storage && chrome.storage.local) {
@@ -1548,6 +1559,40 @@ async function saveAuthSession(token, user) {
     } catch {}
   }
   refreshAuthState();
+}
+
+async function refreshAccessToken() {
+  const authData = await new Promise(r => {
+    if (typeof chrome !== "undefined" && chrome.storage && chrome.storage.local) {
+      chrome.storage.local.get(["safeinbox_auth"], r);
+    } else {
+      r({});
+    }
+  });
+  const auth = authData && authData.safeinbox_auth;
+  if (!auth || !auth.refresh_token) return null;
+
+  try {
+    const baseUrl = getBackendBaseUrl();
+    const resp = await fetch(`${baseUrl}/api/v1/auth/refresh`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ refresh_token: auth.refresh_token })
+    });
+    if (resp.ok) {
+      const data = await resp.json();
+      await saveAuthSession(data.access_token, auth.user, data.refresh_token);
+      return data.access_token;
+    } else if (resp.status === 401) {
+      await clearAuthSession();
+      if (el.authSignInStatus) {
+        setAuthStatus(el.authSignInStatus, "Session expired. Please sign in again.", "warning");
+      }
+    }
+  } catch (e) {
+    console.warn("Could not refresh access token:", e);
+  }
+  return null;
 }
 
 async function clearAuthSession() {
@@ -1970,6 +2015,7 @@ function initAuthManager() {
         }
 
         token = data.access_token;
+        refreshToken = data.refresh_token || null;
         user = data.user;
         authenticated = true;
       } catch (networkErr) {
@@ -2013,7 +2059,7 @@ function initAuthManager() {
 
       if (authenticated && user && token) {
         resetSignInFailures();
-        await saveAuthSession(token, user);
+        await saveAuthSession(token, user, refreshToken);
 
         // Cache user credentials locally so offline authentication works subsequently on this device
         try {
@@ -2237,6 +2283,7 @@ function initAuthManager() {
               return;
             }
             token = data.access_token;
+            const refreshToken = data.refresh_token || null;
             user = data.user;
           } catch (err) {
             setAuthStatus(el.authOtpStatus, "❌ Unable to connect to server to verify code.", "error");
@@ -2245,7 +2292,7 @@ function initAuthManager() {
           }
 
           resetSignInFailures();
-          await saveAuthSession(token, user);
+          await saveAuthSession(token, user, refreshToken);
           stopSidePanelOtpTimers();
           pendingSidePanelOtp = null;
           pendingSidePanelSignUp = null;
@@ -2327,6 +2374,7 @@ function initAuthManager() {
           }
 
           token = data.access_token;
+          const refreshToken = data.refresh_token || null;
           user = data.user;
         } catch (err) {
           setAuthStatus(el.authOtpStatus, "❌ Unable to connect to server to verify OTP.", "error");
@@ -2342,7 +2390,7 @@ function initAuthManager() {
           el.btnSubmitAuthVerifyOtp.disabled = false;
           return;
         }
-        await saveAuthSession(token, user);
+        await saveAuthSession(token, user, refreshToken);
 
         stopSidePanelOtpTimers();
         pendingSidePanelOtp = null;

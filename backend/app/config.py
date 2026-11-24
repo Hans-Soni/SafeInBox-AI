@@ -24,7 +24,8 @@ class Settings(BaseSettings):
 
     # Security & Rate Limiting
     SECRET_KEY: str = "safeinbox-ai-secret-key-change-in-production-2026-secure"
-    ACCESS_TOKEN_EXPIRE_MINUTES: int = 60 * 24 * 7  # 7 days
+    ACCESS_TOKEN_EXPIRE_MINUTES: int = 30  # 30-minute short-lived access token
+    REFRESH_TOKEN_EXPIRE_DAYS: int = 15  # 15-day single-use rotating refresh token
     MAX_EMAIL_BODY_CHARS: int = 1_000_000  # 1 MB limit
     MAX_URL_LENGTH: int = 4096
     MAX_FEEDBACK_ENTRIES: int = 1000

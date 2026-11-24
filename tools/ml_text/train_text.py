@@ -1,6 +1,15 @@
-"""Multi-Corpus Neural Network Training for Email/Text Threat Detection."""
+"""Enhanced Multi-Corpus Neural Network Training for Email/Text Threat Detection.
+
+Features:
+1. Multi-scale n-gram convolutions (k=2, 3, 4, 5) with SE channel attention & Concat Pooling (TextThreatNet).
+2. Focal Loss with label smoothing (gamma=2.0, alpha class weighting) to suppress false positives on urgent business emails.
+3. Cosine Annealing learning rate schedule.
+4. Post-hoc Temperature Scaling / Probability Calibration.
+5. Zero-leakage holdout evaluation across all 5 text corpora and verified ONNX export.
+"""
 
 import os
+import sys
 import time
 import argparse
 import numpy as np
@@ -10,27 +19,33 @@ from torch.utils.data import DataLoader, ConcatDataset
 from sklearn.metrics import accuracy_score, precision_score, recall_score, f1_score, roc_auc_score
 import onnx
 
-from model import TextThreatNet
-from dataset import BinaryTextDataset
+sys.path.insert(0, os.path.abspath("."))
+from tools.ml_text.model import TextThreatNet
+from tools.ml_text.dataset import BinaryTextDataset
+from tools.ml_common import FocalLoss, TemperatureCalibrator
 
 
-def evaluate_dataset(model, ds, device, batch_size=512):
+def evaluate_dataset(model, ds, device, batch_size=512, calibrator=None):
     model.eval()
     loader = DataLoader(ds, batch_size=batch_size, shuffle=False)
     preds = []
     labels = []
     probs = []
+    raw_logits_list = []
 
     with torch.no_grad():
         for ids, mask, lbls in loader:
             ids = ids.to(device)
             mask = mask.to(device)
             logits = model(ids, mask)
+            if calibrator is not None:
+                logits = calibrator(logits)
             p = torch.softmax(logits, dim=1)[:, 1].cpu().numpy()
             pr = torch.argmax(logits, dim=1).cpu().numpy()
             probs.extend(p)
             preds.extend(pr)
             labels.extend(lbls.numpy())
+            raw_logits_list.append(logits.cpu())
 
     preds = np.array(preds)
     labels = np.array(labels)
@@ -51,7 +66,8 @@ def evaluate_dataset(model, ds, device, batch_size=512):
         "f1": f1,
         "roc_auc": auc,
         "fpr": fpr,
-        "count": len(labels)
+        "count": len(labels),
+        "logits": torch.cat(raw_logits_list, dim=0) if raw_logits_list else None
     }
 
 
@@ -84,16 +100,16 @@ def export_onnx(model, export_path, device):
 
 
 def main():
-    parser = argparse.ArgumentParser(description="Train Multi-Corpus Email Threat Detection Model")
-    parser.add_argument("--epochs", type=int, default=5)
-    parser.add_argument("--batch-size", type=int, default=256)
-    parser.add_argument("--lr", type=float, default=1e-3)
+    parser = argparse.ArgumentParser(description="Train Enhanced Multi-Corpus Email Threat Model")
+    parser.add_argument("--epochs", type=int, default=4)
+    parser.add_argument("--batch-size", type=int, default=512)
+    parser.add_argument("--lr", type=float, default=8e-4)
     parser.add_argument("--checkpoint-out", type=str, default="data/models/email_threat_model.pt")
     parser.add_argument("--export-onnx", type=str, default="extension/models/email-threat.onnx")
     args = parser.parse_args()
 
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-    print(f"[*] Training Email Text Threat Model on device: {device}")
+    print(f"[*] Training Enhanced Email Threat Model on device: {device}")
 
     dataset_names = ["text1", "text2", "text3", "text4", "both"]
     train_datasets = []
@@ -127,9 +143,9 @@ def main():
     unified_train = ConcatDataset(train_datasets)
     unified_val = ConcatDataset(val_datasets)
 
-    print("\n" + "=" * 65)
-    print("       UNIFIED EMAIL TEXT CORPUS INITIALIZATION")
-    print("=" * 65)
+    print("\n" + "=" * 68)
+    print("       ENHANCED UNIFIED EMAIL TEXT CORPUS INITIALIZATION")
+    print("=" * 68)
     print(f"  Total Training Samples:   {total_train:,}")
     print(f"  Total Validation Samples: {total_val:,}")
     print(f"  Total Holdout Test:       {total_test:,}")
@@ -138,13 +154,15 @@ def main():
 
     pos_weight = total_safe / max(total_threats, 1)
     class_weights = torch.tensor([1.0, min(pos_weight, 2.0)], dtype=torch.float32, device=device)
-    print(f"  Loss Weight Multiplier:   [1.00, {class_weights[1]:.2f}]")
-    print("=" * 65 + "\n")
+    print(f"  Focal Loss Class Multiplier: [1.00, {class_weights[1]:.2f}]")
+    print("=" * 68 + "\n")
 
     train_loader = DataLoader(unified_train, batch_size=args.batch_size, shuffle=True, drop_last=False)
 
     model = TextThreatNet(vocab_size=16384, embed_dim=64, num_filters=64).to(device)
-    criterion = nn.CrossEntropyLoss(weight=class_weights)
+
+    # Focal Loss (gamma=2.0) with label smoothing (alpha=0.05)
+    criterion = FocalLoss(alpha=class_weights, gamma=2.0, label_smoothing=0.05)
     optimizer = torch.optim.AdamW(model.parameters(), lr=args.lr, weight_decay=1e-4)
     scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(optimizer, T_max=args.epochs, eta_min=1e-5)
 
@@ -172,8 +190,8 @@ def main():
             epoch_loss += loss.item()
             batches += 1
 
-            if batches % 100 == 0:
-                print(f"  [Epoch {epoch}] Batch {batches}/{len(train_loader)} - Loss: {epoch_loss/batches:.4f}")
+            if batches % 50 == 0 or batches == len(train_loader):
+                print(f"  [Epoch {epoch}/{args.epochs}] Batch {batches}/{len(train_loader)} - Focal Loss: {epoch_loss/batches:.4f}")
 
         scheduler.step()
         ep_duration = time.time() - ep_start
@@ -201,17 +219,25 @@ def main():
     total_time = time.time() - start_time
     print(f"\n[*] Training Complete in {total_time/60:.1f} minutes!")
 
-    # Load best checkpoint and evaluate holdout test sets
+    # Load best checkpoint
     best_ckpt = torch.load(args.checkpoint_out, map_location=device, weights_only=False)
     model.load_state_dict(best_ckpt["model_state_dict"])
     model.eval()
 
+    # Temperature Scaling Calibration
+    print("\n[*] Calibrating output probabilities with Temperature Scaling...")
+    val_eval = evaluate_dataset(model, unified_val, device, batch_size=args.batch_size * 2)
+    calibrator = TemperatureCalibrator().to(device)
+    val_labels_tensor = torch.cat([torch.from_numpy(ds.labels[:]) for ds in val_datasets]).long().to(device)
+    calibrator.fit(val_eval["logits"].to(device), val_labels_tensor)
+    print(f"[*] Optimal Temperature Parameter T = {calibrator.temperature.item():.4f}")
+
     print("\n" + "=" * 70)
-    print("       FINAL UNIFIED TEXT HOLDOUT EVALUATION (ZERO-LEAKAGE)")
+    print("       FINAL ENHANCED TEXT HOLDOUT EVALUATION (ZERO-LEAKAGE)")
     print("=" * 70)
 
     for name, te_ds in zip(dataset_names, test_datasets):
-        metrics = evaluate_dataset(model, te_ds, device, batch_size=args.batch_size * 2)
+        metrics = evaluate_dataset(model, te_ds, device, batch_size=args.batch_size * 2, calibrator=calibrator)
         print(f"--- Dataset: {name} ({metrics['count']:,} Holdout Test Texts) ---")
         print(f"  Accuracy:  {metrics['accuracy']*100:.2f}%")
         print(f"  Precision: {metrics['precision']*100:.2f}%")
@@ -223,10 +249,10 @@ def main():
 
     # Grand combined holdout
     unified_test = ConcatDataset(test_datasets)
-    global_metrics = evaluate_dataset(model, unified_test, device, batch_size=args.batch_size * 2)
+    global_metrics = evaluate_dataset(model, unified_test, device, batch_size=args.batch_size * 2, calibrator=calibrator)
 
     print("=" * 70)
-    print(f"  GRAND UNIFIED TEXT BENCHMARK ({global_metrics['count']:,} UNSEEN TEXTS)")
+    print(f"  GRAND ENHANCED TEXT BENCHMARK ({global_metrics['count']:,} UNSEEN TEXTS)")
     print("=" * 70)
     print(f"  Combined Accuracy:  {global_metrics['accuracy']*100:.2f}%")
     print(f"  Combined Precision: {global_metrics['precision']*100:.2f}%")
@@ -242,4 +268,3 @@ def main():
 
 if __name__ == "__main__":
     main()
-

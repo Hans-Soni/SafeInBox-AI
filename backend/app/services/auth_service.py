@@ -14,12 +14,12 @@ from typing import Optional
 
 from fastapi import Depends, HTTPException, Request, status
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
-from sqlalchemy import select
+from sqlalchemy import select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.config import settings
 from app.database import get_db
-from app.models.user import User
+from app.models.user import RefreshToken, User, generate_user_index_id
 
 logger = logging.getLogger(__name__)
 
@@ -251,6 +251,188 @@ def revoke_token(token: str) -> bool:
 def is_token_revoked(jti: str) -> bool:
     """Check if a specific jti identifier has been revoked."""
     return jti in _revoked_token_jtis
+
+
+def hash_token(raw_token: str) -> str:
+    """Compute SHA-256 hash of a raw token for constant-time indexed database lookups."""
+    return hashlib.sha256(raw_token.strip().encode("utf-8")).hexdigest()
+
+
+def create_refresh_token(
+    user_id: int,
+    user_email: str,
+    user_index_id: Optional[str] = None,
+    family_id: Optional[str] = None
+) -> tuple[str, str, datetime]:
+    """
+    Generate an RFC 7519 compliant single-use HS256 JWT refresh token.
+    Returns (raw_token, family_id, expires_at).
+    """
+    now = datetime.now(timezone.utc)
+    fam_id = family_id or secrets.token_hex(16)
+    expires_at = now + timedelta(days=settings.REFRESH_TOKEN_EXPIRE_DAYS)
+
+    payload = {
+        "sub": user_email,
+        "user_id": user_id,
+        "index_id": user_index_id,
+        "fam": fam_id,
+        "jti": secrets.token_hex(16),
+        "typ": "refresh",
+        "iat": int(now.timestamp()),
+        "exp": int(expires_at.timestamp())
+    }
+
+    header = {"alg": "HS256", "typ": "JWT"}
+    header_b64 = _b64url_encode(json.dumps(header, separators=(",", ":")).encode("utf-8"))
+    payload_b64 = _b64url_encode(json.dumps(payload, separators=(",", ":")).encode("utf-8"))
+
+    signing_input = f"{header_b64}.{payload_b64}".encode("ascii")
+    signature = hmac.new(settings.SECRET_KEY.encode("utf-8"), signing_input, hashlib.sha256).digest()
+    sig_b64 = _b64url_encode(signature)
+
+    raw_token = f"{header_b64}.{payload_b64}.{sig_b64}"
+    return raw_token, fam_id, expires_at
+
+
+async def save_refresh_token(
+    db: AsyncSession,
+    user_id: int,
+    user_index_id: Optional[str],
+    raw_refresh_token: str,
+    family_id: str,
+    expires_at: datetime
+) -> RefreshToken:
+    """Persist a new active refresh token record in the database."""
+    record = RefreshToken(
+        user_id=user_id,
+        user_index_id=user_index_id,
+        token_hash=hash_token(raw_refresh_token),
+        family_id=family_id,
+        is_revoked=False,
+        expires_at=expires_at
+    )
+    db.add(record)
+    await db.commit()
+    await db.refresh(record)
+    return record
+
+
+async def revoke_family_tokens(db: AsyncSession, family_id: str) -> int:
+    """Invalidate all refresh tokens in a token family upon reuse or compromise."""
+    stmt = (
+        update(RefreshToken)
+        .where(RefreshToken.family_id == family_id)
+        .values(is_revoked=True)
+    )
+    res = await db.execute(stmt)
+    await db.commit()
+    return res.rowcount if hasattr(res, "rowcount") and res.rowcount is not None else 0
+
+
+async def revoke_user_refresh_tokens(db: AsyncSession, user_id: int) -> int:
+    """Revoke all active refresh tokens for a user across all sessions on sign-out."""
+    stmt = (
+        update(RefreshToken)
+        .where((RefreshToken.user_id == user_id) & (RefreshToken.is_revoked == False))
+        .values(is_revoked=True)
+    )
+    res = await db.execute(stmt)
+    await db.commit()
+    return res.rowcount if hasattr(res, "rowcount") and res.rowcount is not None else 0
+
+
+async def rotate_refresh_token(
+    db: AsyncSession,
+    raw_refresh_token: str
+) -> tuple[str, str, User]:
+    """
+    Execute single-use Refresh Token Rotation (RTR):
+    1. Decode & verify signature.
+    2. Lookup token hash in database.
+    3. Detect token reuse (theft detection): if already revoked, revoke all tokens in family.
+    4. Check expiration.
+    5. Mark old token revoked, generate new short-lived access token and new rotated refresh token.
+    Returns (new_access_token, new_refresh_token, user).
+    """
+    claims = decode_access_token(raw_refresh_token, check_revocation=False)
+    if not claims or claims.get("typ") != "refresh":
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Invalid refresh token signature or token type."
+        )
+
+    family_id = claims.get("fam")
+    token_hash = hash_token(raw_refresh_token)
+
+    # O(1) indexed query by token_hash
+    res = await db.execute(select(RefreshToken).where(RefreshToken.token_hash == token_hash))
+    record = res.scalar_one_or_none()
+
+    if not record or record.is_revoked:
+        # Token reuse detected! Invalidate the entire token family immediately
+        if family_id:
+            await revoke_family_tokens(db, family_id)
+        logger.warning("Refresh token reuse detected for family %s. Revoked family tokens.", family_id)
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Refresh token reuse detected. All sessions in this family have been terminated for security. Please sign in again."
+        )
+
+    now = datetime.now(timezone.utc)
+    rec_exp = record.expires_at
+    if rec_exp and rec_exp.tzinfo is None:
+        rec_exp = rec_exp.replace(tzinfo=timezone.utc)
+    if rec_exp and rec_exp < now:
+        record.is_revoked = True
+        await db.commit()
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Refresh token has expired. Please sign in again."
+        )
+
+    # Retrieve user
+    user_res = await db.execute(select(User).where(User.id == record.user_id))
+    user = user_res.scalar_one_or_none()
+    if not user or not user.is_active:
+        record.is_revoked = True
+        await db.commit()
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="User account is deactivated or not found."
+        )
+
+    # 1. Invalidate current refresh token (single-use enforcement)
+    record.is_revoked = True
+
+    # 2. Issue new access token (30-minute lifespan)
+    user_idx = getattr(user, "index_id", None) or generate_user_index_id(user.email)
+    new_access = create_access_token({
+        "sub": user.email,
+        "user_id": user.id,
+        "index_id": user_idx
+    })
+
+    # 3. Rotate: Issue new refresh token within the same family
+    new_refresh, fam, exp = create_refresh_token(
+        user_id=user.id,
+        user_email=user.email,
+        user_index_id=user_idx,
+        family_id=family_id
+    )
+
+    new_record = RefreshToken(
+        user_id=user.id,
+        user_index_id=user_idx,
+        token_hash=hash_token(new_refresh),
+        family_id=fam,
+        is_revoked=False,
+        expires_at=exp
+    )
+    db.add(new_record)
+    await db.commit()
+
+    return new_access, new_refresh, user
 
 
 async def get_current_user(
