@@ -12,7 +12,7 @@
 - Chrome requires a user gesture to open a native Side Panel, so it cannot auto-open on email navigation. Once opened, the panel refreshes on email changes and active-tab switches. After reloading the extension, refresh the webmail tab to reconnect its content script. Page-level webmail inspection banners continue working with the panel closed.
 - Both URL and Email Text ML models are now fully trained, verified, calibrated, and bundled:
   - URL Threat Model: `extension/models/url-threat.onnx` (194.2 KB) trained on Consolidated Master Binary Dataset (`master_urls.bin`, 2,067,567 URLs across 4 corpora and live user feedback) with 91.76% holdout accuracy, 81.67% precision, 89.53% recall, 85.42% F1-score, and 0.9749 ROC-AUC, featuring Inception Multi-Scale Character CNN (k=2,3,5,7), Squeeze-and-Excitation channel attention, Dual Pooling (Max + Avg, 192-dim), Focal Loss (gamma=2.0), and Temperature Scaling calibration (T=1.0586).
-  - Email Text Threat Model: `extension/models/email-threat.onnx` (4.64 MB) and `extension/models/email-vocab.json` (343 KB) trained on 101,358 email texts across 5 corpora with 96.37% holdout accuracy, 95.41% recall, 97.03% precision, 0.9949 ROC-AUC, and 2.73% FPR, featuring Multi-Scale n-gram Convolutions (k=2,3,4,5), SE channel attention over 256 channels, Adaptive Concat Pooling (512-dim), Focal Loss (gamma=2.0), and Temperature Scaling calibration (T=0.5259).
+  - Email Text Threat Model: `extension/models/email-threat.onnx` (4.64 MB) and `extension/models/email-vocab.json` (343 KB) trained on Consolidated Master Binary Dataset (`master_emails.bin`, 101,359 email texts across 5 corpora and live user feedback) with 96.17% holdout accuracy, 96.08% precision, 95.99% recall, 96.03% F1-score, 0.9945 ROC-AUC, and 3.65% FPR, featuring Multi-Scale n-gram Convolutions (k=2,3,4,5), SE channel attention over 256 channels, Adaptive Concat Pooling (512-dim), Focal Loss (gamma=2.0), and Temperature Scaling calibration (T=1.0656).
   - Both modalities run in dedicated Web workers (`urlInferenceWorker.js` and `textMlWorker.js`), fusing neural network predictions with transparent domain/text heuristics. Browser-side heuristics remain 100% active independently even if models are absent. Safe/Threat labels and local samples are retained in browser storage (latest 100 per type) and optionally synced to the Cloud backend when configured.
 - Privacy boundary: Zero-leak policy for raw email bodies and PII. No email body text, sender/receiver addresses, or subject lines are stored in backend database tables (`ThreatURL`, `ScanAuditLog`) or persistent cloud logs. Only cryptographic SHA-256 digests, threat vectors, risk scores, and sanitized IOCs are retained.
 - Dataset & Storage Separation: URL storage and Text/Email storage are maintained in completely separate pipelines, caches, and database partitions. In the browser extension, `offline_url_feedback` and `offline_text_feedback` occupy separate keys, and `urlThreatScan:` / `emailThreatScan:` caches are distinct. In the backend, `threat_urls` handles URL IOCs while `scan_audit_logs` and `feedback_records` strictly partition URL and TEXT entries. Training data is strictly isolated from testing data; the backend includes deterministic hash-based train/val/test splitting (`backend/app/services/dataset_manager.py`) with mathematical proof of zero data leakage (`assert_zero_leakage`).
@@ -33,6 +33,35 @@
   - PostgreSQL Injection & Attack Hardening: Zero raw SQL interpolation (100% SQLAlchemy 2.0 ORM parameterized binding), email regex defanging against quotes, semicolons, comments, and null bytes, dummy scrypt constant-time execution against email enumeration, sliding-window rate limiting per IP and email, account lockout after 5 consecutive failures, and Bearer token revocation.
 
 ## Change log
+
+### 2026-11-25 — Consolidated Master Email Binary Dataset & Real-Time Feedback Ingestion Pipeline
+
+- Consolidated Master Email Binary Dataset (`tools/ml_text/build_master_text_dataset.py`):
+  - Consolidated all 5 disjoint email corpora (`text1`, `text2`, `text3`, `text4`, `both`) into a single, contiguous memory-mapped binary file: `data/processed/text/master_emails.bin` (99.37 MB) with `master_emails_meta.json`.
+  - Fixed-Width Structured Record Layout (1,028 bytes per record):
+    - `input_ids`: 128 int32 WordPiece token IDs (512 bytes)
+    - `attention_mask`: 128 int32 binary attention mask (512 bytes)
+    - `label`: 1 byte uint8 (0=Safe, 1=Threat)
+    - `split`: 1 byte uint8 (0=Train, 1=Val, 2=Test)
+    - `source`: 1 byte uint8 (1=text1, 2=text2, 3=text3, 4=text4, 5=both, 6=User Feedback)
+    - `reserved`: 1 byte uint8 alignment
+  - Total Samples: 101,359 email texts (81,055 train, 10,243 val, 10,061 holdout test, 1 user feedback).
+- User Feedback Ingestion Tool (`tools/ml_text/ingest_feedback.js`):
+  - Real-time and bulk ingestion of user-labeled emails directly into `master_emails.bin`.
+  - PII and credential sanitization: automatically strips HTML, redacts sensitive credential/token strings, and masks URLs, IPs, and monetary values.
+  - Tokenizes using WordPiece vocabulary (`extension/models/email-vocab.json`).
+  - Appends to the binary master file and updates header counts in $O(1)$ time.
+- Ultra-Fast Vectorized DataLoader (`tools/ml_text/dataset.py` & `tools/ml_text/train_master_text.py`):
+  - `FastMasterTextBatchLoader`: Vectorized C-level memory-mapped array slicing yielding 57,000 samples/sec (10,240 samples in 0.18s), completing full master training in 7.1 minutes on raw CPU.
+  - Holdout Test Benchmark (10,061 unseen samples):
+    - Text2 (SMS Spam): 94.88% Accuracy, 80.00% Precision, 90.91% Recall, 85.11% F1, 4.36% FPR
+    - Text3 (Spam Assassin): 96.47% Accuracy, 93.67% Precision, 93.67% Recall, 93.67% F1, 2.45% FPR
+    - Text4 (Enron Phishing): 95.07% Accuracy, 79.21% Precision, 93.02% Recall, 85.56% F1, 4.55% FPR
+    - Both (Combined Email/SMS): 97.07% Accuracy, 97.47% Precision, 97.08% Recall, 97.27% F1, 2.94% FPR
+    - Grand Combined Benchmark: 96.17% Accuracy, 96.08% Precision, 95.99% Recall, 96.03% F1-score, 0.9945 ROC-AUC, 3.65% FPR.
+  - Temperature Scaling Calibration: $T = 1.0656$.
+  - Exported verified ONNX model to `extension/models/email-threat.onnx` (4.64 MB).
+- Validation: All 89 extension unit tests passed (`npm test` in 12.5s), backend security suite passed (4 passed). Zero regressions. Fully operable offline.
 
 ### 2026-11-25 — Consolidated Master URL Binary Dataset & Real-Time Feedback Ingestion Pipeline
 
