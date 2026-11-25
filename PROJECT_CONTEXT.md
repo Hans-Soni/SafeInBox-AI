@@ -11,7 +11,7 @@
 - Email link targets, raw URLs, `www` links, and bare domains are normalized/deduplicated and scanned sequentially through the shared URL analyzer; sender/subject/body text is assessed separately. The combined email score is the arithmetic mean of text risk and the average URL risk; the highest individual URL risk is also shown.
 - Chrome requires a user gesture to open a native Side Panel, so it cannot auto-open on email navigation. Once opened, the panel refreshes on email changes and active-tab switches. After reloading the extension, refresh the webmail tab to reconnect its content script. Page-level webmail inspection banners continue working with the panel closed.
 - Both URL and Email Text ML models are now fully trained, verified, calibrated, and bundled:
-  - URL Threat Model: `extension/models/url-threat.onnx` (194.2 KB) trained on 2,067,566 URLs across 4 corpora with 91.26% holdout accuracy, 91.08% recall, and 0.9744 ROC-AUC, featuring Inception Multi-Scale Character CNN (k=2,3,5,7), Squeeze-and-Excitation channel attention, Dual Pooling (Max + Avg, 192-dim), Focal Loss (gamma=2.0), and Temperature Scaling calibration (T=1.0653).
+  - URL Threat Model: `extension/models/url-threat.onnx` (194.2 KB) trained on Consolidated Master Binary Dataset (`master_urls.bin`, 2,067,567 URLs across 4 corpora and live user feedback) with 91.76% holdout accuracy, 81.67% precision, 89.53% recall, 85.42% F1-score, and 0.9749 ROC-AUC, featuring Inception Multi-Scale Character CNN (k=2,3,5,7), Squeeze-and-Excitation channel attention, Dual Pooling (Max + Avg, 192-dim), Focal Loss (gamma=2.0), and Temperature Scaling calibration (T=1.0586).
   - Email Text Threat Model: `extension/models/email-threat.onnx` (4.64 MB) and `extension/models/email-vocab.json` (343 KB) trained on 101,358 email texts across 5 corpora with 96.37% holdout accuracy, 95.41% recall, 97.03% precision, 0.9949 ROC-AUC, and 2.73% FPR, featuring Multi-Scale n-gram Convolutions (k=2,3,4,5), SE channel attention over 256 channels, Adaptive Concat Pooling (512-dim), Focal Loss (gamma=2.0), and Temperature Scaling calibration (T=0.5259).
   - Both modalities run in dedicated Web workers (`urlInferenceWorker.js` and `textMlWorker.js`), fusing neural network predictions with transparent domain/text heuristics. Browser-side heuristics remain 100% active independently even if models are absent. Safe/Threat labels and local samples are retained in browser storage (latest 100 per type) and optionally synced to the Cloud backend when configured.
 - Privacy boundary: Zero-leak policy for raw email bodies and PII. No email body text, sender/receiver addresses, or subject lines are stored in backend database tables (`ThreatURL`, `ScanAuditLog`) or persistent cloud logs. Only cryptographic SHA-256 digests, threat vectors, risk scores, and sanitized IOCs are retained.
@@ -33,6 +33,38 @@
   - PostgreSQL Injection & Attack Hardening: Zero raw SQL interpolation (100% SQLAlchemy 2.0 ORM parameterized binding), email regex defanging against quotes, semicolons, comments, and null bytes, dummy scrypt constant-time execution against email enumeration, sliding-window rate limiting per IP and email, account lockout after 5 consecutive failures, and Bearer token revocation.
 
 ## Change log
+
+### 2026-11-25 — Consolidated Master URL Binary Dataset & Real-Time Feedback Ingestion Pipeline
+
+- Consolidated Master URL Binary Dataset (`tools/ml_url/build_master_url_dataset.py`):
+  - Consolidated all 4 disjoint URL corpora (URL1, URL2, URL3, URL4) into a single, contiguous memory-mapped binary file: `data/processed/url/master_urls.bin` (1,269.83 MB) with `master_urls_meta.json`.
+  - Fixed-Width Structured Record Layout (644 bytes per record):
+    - `features`: 32 float32 dense heuristics (128 bytes)
+    - `characters`: 128 int32 character tokens (512 bytes)
+    - `label`: 1 byte uint8 (0=Safe, 1=Threat)
+    - `split`: 1 byte uint8 (0=Train, 1=Val, 2=Test)
+    - `source`: 1 byte uint8 (1..4=Corpora, 5=User Feedback)
+    - `reserved`: 1 byte uint8
+  - Total Samples: 2,067,567 URLs (1,654,565 train, 206,858 val, 206,144 holdout test).
+- User Feedback Ingestion Tool (`tools/ml_url/ingest_feedback.js`):
+  - Real-time and bulk ingestion of user-labeled URLs directly into `master_urls.bin`.
+  - PII and credential sanitization: automatically redacts tokens, keys, passwords, and sessions from query parameters before persisting.
+  - Extracts identical 32 features and 128 character tokens using the shared URL parser (`urlThreatParser.js`).
+  - Appends to the binary master file and updates header counts in $O(1)$ time.
+- Ultra-Fast Vectorized DataLoader (`tools/ml_url/dataset.py` & `tools/ml_url/train_master_url.py`):
+  - `FastMasterBatchLoader`: Vectorized C-level memory-mapped array slicing yielding 46,000 samples/sec (20,480 samples in 0.445s), cutting training time from 45 minutes down to 28.7 minutes on raw CPU.
+  - Holdout Test Benchmark (206,144 unseen samples):
+    - URL1: 95.64% Accuracy, 86.16% Precision, 90.59% Recall, 88.32% F1, 3.24% FPR
+    - URL2: 97.72% Accuracy, 92.21% Precision, 98.39% Recall, 95.20% F1, 2.48% FPR
+    - URL3: 86.11% Accuracy, 76.97% Precision, 84.41% Recall, 80.52% F1
+    - URL4: 90.59% Accuracy, 79.51% Precision, 90.38% Recall, 84.60% F1, 9.33% FPR
+    - Grand Combined: 91.76% Accuracy (up from 91.26%), 81.67% Precision, 89.53% Recall, 85.42% F1, 7.42% FPR (down from 8.67%), and 0.9749 ROC-AUC.
+    - Optimal Temperature: $T = 1.0586$.
+    - Exported and verified ONNX model at `extension/models/url-threat.onnx` (194.2 KB).
+- Validation:
+  - All 89 extension unit tests passed (`npm test`).
+  - All 4 backend RTR tests passed (`test_refresh_token_rotation.py`).
+  - Offline independence preserved: browser extension remains 100% functional without backend.
 
 ### 2026-11-24 — High-Accuracy ML Model Retraining with Focal Loss, SE Attention, and Temperature Calibration
 
