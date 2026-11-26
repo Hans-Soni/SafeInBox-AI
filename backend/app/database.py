@@ -23,6 +23,15 @@ engine_kwargs = {
 if is_sqlite:
     engine_kwargs["poolclass"] = NullPool
     engine_kwargs["connect_args"] = {"check_same_thread": False}
+else:
+    # Neon Cloud PostgreSQL / pgBouncer Pooler hardening:
+    # Disable asyncpg prepared statement caching for transaction-pooled connections
+    # and recycle pooled connections periodically to prevent stale sockets.
+    engine_kwargs["pool_recycle"] = 300
+    engine_kwargs["connect_args"] = {
+        "statement_cache_size": 0,
+        "prepared_statement_cache_size": 0,
+    }
 
 engine = create_async_engine(
     settings.async_database_url,

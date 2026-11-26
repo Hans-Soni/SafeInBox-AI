@@ -65,11 +65,11 @@ async def main():
         res = await conn.execute(text("SELECT version_num FROM alembic_version;"))
         current_rev = res.scalar()
         if not current_rev:
-            await conn.execute(text("INSERT INTO alembic_version (version_num) VALUES ('f6a7b8c9d0e1');"))
-            print("    [OK] Stamped alembic_version to head revision 'f6a7b8c9d0e1'.")
+            await conn.execute(text("INSERT INTO alembic_version (version_num) VALUES ('i9d0e1f2a3b4');"))
+            print("    [OK] Stamped alembic_version to head revision 'i9d0e1f2a3b4'.")
         else:
-            await conn.execute(text("UPDATE alembic_version SET version_num = 'f6a7b8c9d0e1';"))
-            print(f"    [OK] Updated alembic_version from '{current_rev}' to head revision 'f6a7b8c9d0e1'.")
+            await conn.execute(text("UPDATE alembic_version SET version_num = 'i9d0e1f2a3b4';"))
+            print(f"    [OK] Updated alembic_version from '{current_rev}' to head revision 'i9d0e1f2a3b4'.")
 
     # 3. Inspect Schema in Neon
     print("\n[*] Phase 3: Inspecting Public Schema & Tables in Neon...")
@@ -81,6 +81,8 @@ async def main():
         "feedback_records",
         "security_digest_logs",
         "url_clicks",
+        "email_otp_verifications",
+        "refresh_tokens",
     ]
 
     async with engine.connect() as conn:
