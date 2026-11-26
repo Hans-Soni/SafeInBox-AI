@@ -1667,10 +1667,16 @@ async def get_my_profile(
 @router.get("/user-by-index/{index_id}", response_model=UserResponse)
 async def get_user_by_index_id(
     index_id: str,
+    current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db)
 ) -> UserResponse:
-    """Retrieve public user profile by unique Index ID."""
-    clean_idx = index_id.strip()
+    """Retrieve user profile by unique Index ID (restricted to authenticated account owner)."""
+    clean_idx = index_id.strip().upper()
+    if not current_user.index_id or current_user.index_id.upper() != clean_idx:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Forbidden: Cannot access profile of another user index."
+        )
     result = await db.execute(select(User).where(User.index_id == clean_idx))
     user = result.scalar_one_or_none()
     if not user:
@@ -1684,12 +1690,25 @@ async def get_user_by_index_id(
 @router.get("/track/{identifier}", response_model=UserTrackingSummary)
 async def track_user_data(
     identifier: str,
+    current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db)
 ) -> UserTrackingSummary:
     """
     Unified tracking endpoint for user email or unique Index ID.
     Aggregates profile metadata, URL click history, security digest dispatches, and terms consent.
+    Restricted strictly to the authenticated account owner.
     """
+    clean_id = identifier.strip()
+    is_index = clean_id.upper().startswith("SAFE-IDX-")
+    
+    is_own_email = clean_id.lower() == current_user.email.lower()
+    is_own_index = bool(current_user.index_id and clean_id.upper() == current_user.index_id.upper())
+    if not (is_own_email or is_own_index):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Forbidden: Cannot view tracking data of another user account."
+        )
+
     from sqlalchemy import or_
 
     clean_id = identifier.strip()

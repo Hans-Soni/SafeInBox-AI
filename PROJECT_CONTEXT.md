@@ -34,6 +34,32 @@
 
 ## Change log
 
+### 2026-11-26 — Project-Wide Security Audit, Credential Redaction, Guest Protection & IDOR Neutralization
+
+- Live Credential Redaction & Security Alert:
+  - Sanitized plain text Neon PostgreSQL connection string in `PROJECT_CONTEXT.md` (redacted password to `[REDACTED_PASSWORD]`). Flagged immediate database password rotation in the Neon Cloud Console. Verified all `.env` files are in `.gitignore`.
+- Elimination of Unauthenticated Data Exposure & Guest Access Loopholes:
+  - `GET /api/v1/auth/user-by-index/{index_id}`: Added `current_user: User = Depends(get_current_user)` and strict ownership verification (`index_id.upper() == current_user.index_id.upper()`), blocking unauthenticated guest scraping and returning 403 Forbidden on IDOR attempts.
+  - `GET /api/v1/auth/track/{identifier}`: Added `current_user: User = Depends(get_current_user)` and strict ownership validation (`identifier` must match authenticated `current_user.email` or `current_user.index_id`), neutralizing unauthorized profile and URL click history disclosure.
+  - `GET /api/v1/scan/clicks`: Added mandatory Bearer token authentication and user-level query filtering (`UrlClickLog.user_email == current_user.email`). Unauthenticated guest requests return 401 Unauthorized; mismatched parameters return 403 Forbidden.
+  - `GET /api/v1/scan/audits`: Added mandatory authentication and user-level ownership isolation (`ScanAuditLog.user_email == current_user.email`).
+  - `GET /api/v1/digest/history`: Added mandatory authentication and user-level ownership filtering (`SecurityDigestLog.user_email == current_user.email`).
+  - `POST /api/v1/digest/purge`: Added mandatory authentication; purges strictly scoped to `current_user.email`.
+  - `GET /api/v1/feedback` & `GET /api/v1/feedback/export-split`: Added `current_user: User = Depends(get_current_user)` requirement to prevent unauthenticated guests from harvesting submitted training samples.
+- Codebase Integrity & Supply Chain Audit:
+  - Zero Dynamic Code Execution: Verified zero occurrences of `eval()`, `Function()`, `setTimeout(string)`, or shell injection in extension and backend code.
+  - DOM XSS Prevention: Verified all dynamic variables interpolated into HTML templates (`sidepanelController.js`, `contentScript.js`, `welcomeController.js`) pass through `escapeHtml()`.
+  - Content Security Policy (CSP): Enforced strict manifest CSP (`script-src 'self' 'wasm-unsafe-eval'; object-src 'self'`).
+  - Network Traffic Bounded: Client network activity strictly limited to user-designated backend (`https://safeinbox-ai.onrender.com` or localhost) and Apps Script OTP relay.
+- Security Test Suite & Validation:
+  - Created `backend/tests/test_guest_and_idor_protection.py`: Verifies that unauthenticated guests receive 401 Unauthorized across all data endpoints, and authenticated users receive 403 Forbidden when attempting cross-user IDOR access.
+  - Added `auth_limiter.reset()` in `backend/tests/conftest.py` for test isolation.
+  - Updated `backend/tests/test_api.py`, `backend/tests/test_auth.py`, `backend/tests/test_digest.py`, and `backend/tests/test_zk_encryption.py` to authenticate requests.
+  - Validation:
+    - All 40 backend integration and security tests passed (`pytest` in 14.12s).
+    - All 92 browser extension unit tests passed (`npm test` in 15.05s).
+    - Browser extension remains 100% operable independently without any backend.
+
 ### 2026-11-26 — Comprehensive ML Model Cross-Check, Live ONNX Benchmark Test Suite & Runtime Optimization
 
 - Live ONNX Model Test Suite (`extension/tests/onnxModelLive.test.js`):
@@ -451,7 +477,7 @@
 ### 2026-11-04 — Neon Lakebase Postgres Schema Synchronization & Full Data Tracking
 
 - Connected to User's Active Neon Database:
-  - Updated `DATABASE_URL` in `backend/.env` and `.env` with the user's active pooled PostgreSQL connection string: `postgresql://neondb_owner:npg_vLDnHmaxk2X1@ep-summer-union-a134dbgc-pooler.ap-southeast-1.aws.neon.tech/neondb?sslmode=require&channel_binding=require`.
+  - Updated `DATABASE_URL` in `backend/.env` and `.env` with the user's active pooled PostgreSQL connection string: `postgresql://neondb_owner:[REDACTED_PASSWORD]@ep-summer-union-a134dbgc-pooler.ap-southeast-1.aws.neon.tech/neondb?sslmode=require&channel_binding=require`.
   - Configured `async_database_url` in `backend/app/config.py` to automatically adapt `postgresql://` to `postgresql+asyncpg://` while standardizing SSL parameters (`ssl=require`) for asyncpg.
 - Schema Synchronization & Migration Stamping (`backend/tests/sync_and_track_neon.py`):
   - Verified connection to Neon Cloud PostgreSQL (PostgreSQL 18.6).

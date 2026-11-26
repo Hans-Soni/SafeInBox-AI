@@ -9,7 +9,9 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.database import get_db
 from app.models.threat import FeedbackRecord
+from app.models.user import User
 from app.schemas.feedback import DatasetSplitResponse, FeedbackItem, FeedbackRequest, FeedbackResponse
+from app.services.auth_service import get_current_user
 from app.services.dataset_manager import assert_zero_leakage, split_dataset
 
 router = APIRouter(prefix="/api/v1", tags=["Feedback"])
@@ -60,9 +62,10 @@ async def list_feedback(
         description="Filter feedback strictly by URL vs TEXT storage to prevent dataset cross-contamination"
     ),
     limit: int = Query(100, ge=1, le=1000),
+    current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db)
 ) -> list[FeedbackItem]:
-    """Retrieve feedback records strictly partitioned by target type (URL or TEXT)."""
+    """Retrieve feedback records strictly partitioned by target type (URL or TEXT) for authenticated users."""
     stmt = select(FeedbackRecord).order_by(FeedbackRecord.created_at.desc()).limit(limit)
     if target_type:
         stmt = stmt.where(FeedbackRecord.target_type == target_type)
@@ -92,6 +95,7 @@ async def export_dataset_split(
     train_ratio: float = Query(0.80, ge=0.5, le=0.9),
     val_ratio: float = Query(0.10, ge=0.05, le=0.3),
     test_ratio: float = Query(0.10, ge=0.05, le=0.3),
+    current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db)
 ) -> DatasetSplitResponse:
     """Export training, validation, and testing splits partitioned with mathematical zero-leakage guarantee."""

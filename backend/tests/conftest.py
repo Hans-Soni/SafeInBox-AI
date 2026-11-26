@@ -10,11 +10,13 @@ from sqlalchemy import delete
 from app.database import AsyncSessionLocal, init_db
 from app.models.threat import FeedbackRecord, ScanAuditLog, ThreatURL
 from app.models.user import TermsConsent, User
+from app.services.auth_service import auth_limiter
 
 
 @pytest.fixture(autouse=True)
 async def prepare_database():
-    """Ensure database tables are initialized and clean before each test."""
+    """Ensure database tables and rate limiters are initialized and clean before each test."""
+    auth_limiter.reset()
     await init_db()
     async with AsyncSessionLocal() as session:
         await session.execute(delete(ThreatURL))

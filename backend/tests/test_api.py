@@ -182,8 +182,20 @@ async def test_url_and_text_storage_separation_and_filtering():
                 "source": "email_scanner"
             })
 
+        # 0. Unauthenticated guest request MUST be rejected with 401
+        res_unauth = await client.get("/api/v1/feedback?target_type=URL")
+        assert res_unauth.status_code == 401
+
+        # Register authenticated tester
+        signup_res = await client.post("/api/v1/auth/signup", json={
+            "email": "feedback_auditor@safeinbox.ai",
+            "password": "StrongPassword2026!",
+            "full_name": "Feedback Auditor"
+        })
+        auth_headers = {"Authorization": f"Bearer {signup_res.json()['access_token']}"}
+
         # 1. Fetch URL dataset only - must NOT contain text samples
-        res_url = await client.get("/api/v1/feedback?target_type=URL")
+        res_url = await client.get("/api/v1/feedback?target_type=URL", headers=auth_headers)
         assert res_url.status_code == 200
         url_items = res_url.json()
         assert len(url_items) == 3
@@ -192,7 +204,7 @@ async def test_url_and_text_storage_separation_and_filtering():
             assert item["target_sample"].startswith("https://")
 
         # 2. Fetch Text dataset only - must NOT contain URL samples
-        res_text = await client.get("/api/v1/feedback?target_type=TEXT")
+        res_text = await client.get("/api/v1/feedback?target_type=TEXT", headers=auth_headers)
         assert res_text.status_code == 200
         text_items = res_text.json()
         assert len(text_items) == 3
@@ -215,8 +227,23 @@ async def test_training_and_testing_data_zero_leakage():
                 "source": "automated_ingest"
             })
 
-        # Request partitioned splits (80% train, 10% val, 10% test)
-        res_split = await client.get("/api/v1/feedback/export-split?target_type=URL&train_ratio=0.8&val_ratio=0.1&test_ratio=0.1")
+        # Request partitioned splits without auth - must be rejected with 401
+        res_unauth = await client.get("/api/v1/feedback/export-split?target_type=URL&train_ratio=0.8&val_ratio=0.1&test_ratio=0.1")
+        assert res_unauth.status_code == 401
+
+        # Register authenticated partition tester
+        signup_res = await client.post("/api/v1/auth/signup", json={
+            "email": "partition_auditor@safeinbox.ai",
+            "password": "StrongPassword2026!",
+            "full_name": "Partition Auditor"
+        })
+        auth_headers = {"Authorization": f"Bearer {signup_res.json()['access_token']}"}
+
+        # Request partitioned splits (80% train, 10% val, 10% test) with valid auth
+        res_split = await client.get(
+            "/api/v1/feedback/export-split?target_type=URL&train_ratio=0.8&val_ratio=0.1&test_ratio=0.1",
+            headers=auth_headers
+        )
         assert res_split.status_code == 200
         data = res_split.json()
 

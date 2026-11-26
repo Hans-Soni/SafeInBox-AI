@@ -2,12 +2,13 @@
 
 from typing import List, Optional
 from fastapi import APIRouter, Depends, HTTPException, status
-from sqlalchemy import select
+from sqlalchemy import or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.database import get_db
 from app.models.digest import SecurityDigestLog
-from app.models.user import generate_user_index_id
+from app.models.user import User, generate_user_index_id
+from app.services.auth_service import get_current_user
 from app.schemas.digest import (
     DigestSendRequest,
     DigestSendResponse,
@@ -101,13 +102,20 @@ async def preview_15_day_digest(payload: DigestSendRequest):
 async def purge_expired_history(
     user_email: Optional[str] = None,
     days: int = 15,
+    current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db)
 ):
     """
     Clear all email scan logs, URL clicks, and past digest logs older than 15 days
-    from the database to enforce the 15-day rolling retention limit.
+    from the database for the authenticated user to enforce the 15-day rolling retention limit.
     """
-    result = await purge_expired_15day_history(db, user_email=user_email, days=days)
+    target_email = current_user.email.strip().lower()
+    if user_email and user_email.strip().lower() != target_email:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Forbidden: Cannot purge history of another user."
+        )
+    result = await purge_expired_15day_history(db, user_email=target_email, days=days)
     return DigestPurgeResponse(
         success=True,
         message=f"Purged {result['total_purged']} expired records older than {days} days from database.",
@@ -120,15 +128,29 @@ async def get_digest_history(
     user_email: Optional[str] = None,
     user_index_id: Optional[str] = None,
     limit: int = 20,
+    current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db)
 ):
-    """Retrieve historical 15-day digest dispatch logs for a user email or index ID."""
-    stmt = select(SecurityDigestLog)
-    if user_index_id:
-        stmt = stmt.where(SecurityDigestLog.user_index_id == user_index_id.strip())
-    elif user_email:
-        stmt = stmt.where(SecurityDigestLog.user_email == user_email.strip().lower())
-    stmt = stmt.order_by(SecurityDigestLog.created_at.desc()).limit(limit)
+    """Retrieve historical 15-day digest dispatch logs for the authenticated user."""
+    target_email = current_user.email.strip().lower()
+    target_index = (current_user.index_id or "").strip().upper()
+
+    if user_email and user_email.strip().lower() != target_email:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Forbidden: Cannot access digest history of another user."
+        )
+    if user_index_id and user_index_id.strip().upper() != target_index:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Forbidden: Cannot access digest history of another user index."
+        )
+
+    filters = [SecurityDigestLog.user_email == target_email]
+    if target_index:
+        filters.append(SecurityDigestLog.user_index_id == target_index)
+
+    stmt = select(SecurityDigestLog).where(or_(*filters)).order_by(SecurityDigestLog.created_at.desc()).limit(limit)
     result = await db.execute(stmt)
     logs = result.scalars().all()
 

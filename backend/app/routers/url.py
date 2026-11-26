@@ -3,12 +3,13 @@
 import hashlib
 import time
 from fastapi import APIRouter, Depends, HTTPException, status
-from sqlalchemy import select
+from sqlalchemy import or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.database import get_db
 from app.models.threat import ThreatURL, ScanAuditLog, UrlClickLog
-from app.models.user import generate_user_index_id
+from app.models.user import User, generate_user_index_id
+from app.services.auth_service import get_current_user
 from app.schemas.url_scan import (
     URLScanRequest,
     URLScanResponse,
@@ -160,15 +161,29 @@ async def get_clicks(
     user_email: str | None = None,
     user_index_id: str | None = None,
     limit: int = 100,
+    current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db)
 ) -> list[UrlClickResponse]:
-    """Retrieve recent recorded click events from the persistent database filtered by email or index ID."""
-    stmt = select(UrlClickLog)
-    if user_index_id:
-        stmt = stmt.where(UrlClickLog.user_index_id == user_index_id.strip())
-    elif user_email:
-        stmt = stmt.where(UrlClickLog.user_email == user_email.strip().lower())
-    stmt = stmt.order_by(UrlClickLog.clicked_at.desc()).limit(min(limit, 500))
+    """Retrieve recent recorded click events from the persistent database for the authenticated user."""
+    target_email = current_user.email.strip().lower()
+    target_index = (current_user.index_id or "").strip().upper()
+
+    if user_email and user_email.strip().lower() != target_email:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Forbidden: Cannot access click logs of another user."
+        )
+    if user_index_id and user_index_id.strip().upper() != target_index:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Forbidden: Cannot access click logs of another user index."
+        )
+
+    filters = [UrlClickLog.user_email == target_email]
+    if target_index:
+        filters.append(UrlClickLog.user_index_id == target_index)
+
+    stmt = select(UrlClickLog).where(or_(*filters)).order_by(UrlClickLog.clicked_at.desc()).limit(min(limit, 500))
     result = await db.execute(stmt)
     entries = result.scalars().all()
     return [
@@ -227,16 +242,31 @@ async def get_audits(
     user_email: str | None = None,
     user_index_id: str | None = None,
     limit: int = 100,
+    current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db)
 ) -> list[ScanAuditResponse]:
-    """Retrieve recent scan audit logs from the persistent database."""
-    stmt = select(ScanAuditLog)
+    """Retrieve recent scan audit logs from the persistent database for the authenticated user."""
+    target_email = current_user.email.strip().lower()
+    target_index = (current_user.index_id or "").strip().upper()
+
+    if user_email and user_email.strip().lower() != target_email:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Forbidden: Cannot access audit logs of another user."
+        )
+    if user_index_id and user_index_id.strip().upper() != target_index:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Forbidden: Cannot access audit logs of another user index."
+        )
+
+    filters = [ScanAuditLog.user_email == target_email]
+    if target_index:
+        filters.append(ScanAuditLog.user_index_id == target_index)
+
+    stmt = select(ScanAuditLog).where(or_(*filters))
     if scan_type:
         stmt = stmt.where(ScanAuditLog.scan_type == scan_type.upper())
-    if user_index_id:
-        stmt = stmt.where(ScanAuditLog.user_index_id == user_index_id.strip())
-    elif user_email:
-        stmt = stmt.where(ScanAuditLog.user_email == user_email.strip().lower())
     stmt = stmt.order_by(ScanAuditLog.created_at.desc()).limit(min(limit, 500))
     result = await db.execute(stmt)
     entries = result.scalars().all()

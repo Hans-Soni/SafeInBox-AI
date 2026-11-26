@@ -42,8 +42,20 @@ async def test_zk_encrypted_click_recording_and_retrieval():
         assert data["encrypted_payload"] == mock_encrypted_payload
         assert data["url"] == "[ENCRYPTED]"
 
-        # 2. Retrieve encrypted clicks
-        res_list = await client.get("/api/v1/scan/clicks", params={"user_email": test_email})
+        # 2. Retrieve encrypted clicks - unauthenticated MUST fail with 401
+        unauth_list = await client.get("/api/v1/scan/clicks", params={"user_email": test_email})
+        assert unauth_list.status_code == 401
+
+        # Register authenticated user
+        signup_res = await client.post("/api/v1/auth/signup", json={
+            "email": test_email,
+            "password": "StrongPassword2026!",
+            "full_name": "ZK Tester"
+        })
+        auth_headers = {"Authorization": f"Bearer {signup_res.json()['access_token']}"}
+
+        # Retrieve encrypted clicks with valid auth
+        res_list = await client.get("/api/v1/scan/clicks", params={"user_email": test_email}, headers=auth_headers)
         assert res_list.status_code == 200
         items = res_list.json()
         matching = [item for item in items if item["encrypted_payload"] == mock_encrypted_payload]
@@ -79,8 +91,20 @@ async def test_zk_encrypted_digest_dispatch_and_history():
         send_resp = res.json()
         assert send_resp["success"] is True
 
-        # 2. Retrieve digest history
-        res_hist = await client.get("/api/v1/digest/history", params={"user_email": test_email})
+        # 2. Retrieve digest history - unauthenticated MUST fail with 401
+        unauth_hist = await client.get("/api/v1/digest/history", params={"user_email": test_email})
+        assert unauth_hist.status_code == 401
+
+        # Register authenticated user
+        signup_res = await client.post("/api/v1/auth/signup", json={
+            "email": test_email,
+            "password": "StrongPassword2026!",
+            "full_name": "ZK Tester"
+        })
+        auth_headers = {"Authorization": f"Bearer {signup_res.json()['access_token']}"}
+
+        # Retrieve digest history with valid auth
+        res_hist = await client.get("/api/v1/digest/history", params={"user_email": test_email}, headers=auth_headers)
         assert res_hist.status_code == 200, res_hist.text
         history_items = res_hist.json()
         matching = [h for h in history_items if h.get("encrypted_payload") == mock_encrypted_digest]

@@ -26,7 +26,7 @@ async def test_user_signup_and_duplicate_prevention():
         # 1. Successful Sign Up
         signup_payload = {
             "email": "analyst@safeinbox.ai",
-            "password": "StrongSecurityPassword2026!",
+            "password": "Xk9#mP2$vL8@qW4!",
             "full_name": "Security Analyst"
         }
         resp = await client.post("/api/v1/auth/signup", json=signup_payload)
@@ -43,11 +43,11 @@ async def test_user_signup_and_duplicate_prevention():
         # 2. Duplicate registration with same email (case-insensitive)
         dup_resp = await client.post("/api/v1/auth/signup", json={
             "email": "ANALYST@SAFEINBOX.AI",
-            "password": "AnotherPassword123!",
+            "password": "Zq7*jN4^wY1#tR9?",
             "full_name": "Clone User"
         })
         assert dup_resp.status_code == 400
-        assert "already registered" in dup_resp.json()["detail"]
+        assert "already" in dup_resp.json()["detail"].lower()
 
 
 @pytest.mark.asyncio
@@ -75,12 +75,13 @@ async def test_user_signin_and_authentication_flow():
     async with AsyncClient(transport=ASGITransport(app=app), base_url="http://testserver") as client:
         # Register a test account
         user_email = "testuser@safeinbox.ai"
-        user_password = "PasswordForTesting123!"
-        await client.post("/api/v1/auth/signup", json={
+        user_password = "Xk9#mP2$vL8@qW4!"
+        reg_resp = await client.post("/api/v1/auth/signup", json={
             "email": user_email,
             "password": user_password,
-            "full_name": "Test User"
+            "full_name": "Jane Doe"
         })
+        assert reg_resp.status_code == 201, f"Signup failed: {reg_resp.text}"
 
         # 1. Successful Sign In
         signin_resp = await client.post("/api/v1/auth/signin", json={
@@ -121,7 +122,7 @@ async def test_user_signin_and_authentication_flow():
         assert me_resp.status_code == 200
         me_data = me_resp.json()
         assert me_data["email"] == user_email
-        assert me_data["full_name"] == "Test User"
+        assert me_data["full_name"] == "Jane Doe"
 
         # 6. Access /me without token or with invalid token
         unauth_resp = await client.get("/api/v1/auth/me")

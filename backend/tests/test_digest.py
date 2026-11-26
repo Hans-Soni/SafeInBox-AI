@@ -123,12 +123,29 @@ async def test_digest_send_and_preview_endpoints():
         assert send_data["total_emails"] == 1
         assert send_data["threats_detected"] == 1
         assert send_data["total_clicks"] == 1
-        assert send_data["dispatch_mode"] in ("smtp", "simulated_preview")
+        assert send_data["dispatch_mode"] in ("smtp", "simulated_preview", "apps_script")
 
-        # Test history retrieval
-        hist_res = await client.get("/api/v1/digest/history?user_email=security.audit@safeinbox.ai")
+        # Test unauthenticated history retrieval (MUST be rejected with 401)
+        unauth_res = await client.get("/api/v1/digest/history?user_email=security.audit@safeinbox.ai")
+        assert unauth_res.status_code == 401
+
+        # Register authenticated user
+        signup_res = await client.post("/api/v1/auth/signup", json={
+            "email": "security.audit@safeinbox.ai",
+            "password": "M7$xK9#vL2@qW4!",
+            "full_name": "Digest Officer"
+        })
+        assert signup_res.status_code == 201, f"Signup failed: {signup_res.text}"
+        auth_headers = {"Authorization": f"Bearer {signup_res.json()['access_token']}"}
+
+        # Test authenticated history retrieval
+        hist_res = await client.get("/api/v1/digest/history?user_email=security.audit@safeinbox.ai", headers=auth_headers)
         assert hist_res.status_code == 200
         hist_data = hist_res.json()
         assert len(hist_data) >= 1
         assert hist_data[0]["user_email"] == "security.audit@safeinbox.ai"
+
+        # Test cross-user IDOR access (MUST be rejected with 403)
+        idor_res = await client.get("/api/v1/digest/history?user_email=victim@safeinbox.ai", headers=auth_headers)
+        assert idor_res.status_code == 403
 

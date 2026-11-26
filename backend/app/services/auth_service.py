@@ -94,6 +94,11 @@ class AuthRateLimiter:
         self._attempts.pop(key, None)
         self._lockouts.pop(key, None)
 
+    def reset(self) -> None:
+        """Clear all attempts and lockouts across all keys (for test isolation and admin flush)."""
+        self._attempts.clear()
+        self._lockouts.clear()
+
 
 auth_limiter = AuthRateLimiter()
 
