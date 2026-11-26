@@ -58,6 +58,9 @@
   - Validation:
     - All 40 backend integration and security tests passed (`pytest` in 14.12s).
     - All 92 browser extension unit tests passed (`npm test` in 15.05s).
+    - Live Neon Lakebase Postgres sync & tracking harness verified all 10 tables and 7 data streams with 100% success (`python backend/tests/sync_and_track_neon.py`).
+    - Stamped Alembic version to head revision `i9d0e1f2a3b4`.
+    - Hardened asyncpg connection pool parameters for Neon pgBouncer pooler (`statement_cache_size=0`, `prepared_statement_cache_size=0`, `pool_recycle=300`).
     - Browser extension remains 100% operable independently without any backend.
 
 ### 2026-11-26 — Comprehensive ML Model Cross-Check, Live ONNX Benchmark Test Suite & Runtime Optimization
