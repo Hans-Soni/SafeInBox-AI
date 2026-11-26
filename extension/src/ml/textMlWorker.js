@@ -75,6 +75,8 @@ async function loadVocabulary() {
   return vocabularyPromise;
 }
 
+const TEMPERATURE_TEXT = 1.0656;
+
 async function loadModel() {
   const activeOrt = (typeof self !== "undefined" && self.ort) || (typeof ort !== "undefined" ? ort : null);
   if (!activeOrt) return null;
@@ -107,24 +109,35 @@ function makeTensor(values, name) {
   const activeOrt = (typeof self !== "undefined" && self.ort) || (typeof ort !== "undefined" ? ort : null);
   if (!activeOrt) throw new Error("ONNX Runtime Web is not available to create tensors.");
   const metadata = session && session.inputMetadata && session.inputMetadata[name];
+  const len = values.length;
   if (metadata && metadata.type === "int64") {
-    return new activeOrt.Tensor("int64", BigInt64Array.from(values, (value) => BigInt(value)), [1, values.length]);
+    // Fast tight loop avoids iterator and callback overhead
+    const bigArr = new BigInt64Array(len);
+    for (let i = 0; i < len; i++) {
+      bigArr[i] = BigInt(values[i]);
+    }
+    return new activeOrt.Tensor("int64", bigArr, [1, len]);
   }
-  return new activeOrt.Tensor("int32", values, [1, values.length]);
+  const intArr = values instanceof Int32Array ? values : Int32Array.from(values);
+  return new activeOrt.Tensor("int32", intArr, [1, len]);
 }
 
 function probabilityFromOutput(output, outputType) {
-  const values = Array.from(output.data, Number);
-  if (values.length >= 2) {
-    if (outputType === "probabilities") return Math.max(0, Math.min(1, values[1]));
-    const max = Math.max(values[0], values[1]);
-    const first = Math.exp(values[0] - max);
-    const second = Math.exp(values[1] - max);
+  const data = output.data;
+  if (!data || data.length === 0) return 0;
+  if (data.length >= 2) {
+    if (outputType === "probabilities") return Math.max(0, Math.min(1, Number(data[1])));
+    // Calibrated temperature scaling on logits with zero-allocation softmax
+    const v0 = Number(data[0]) / TEMPERATURE_TEXT;
+    const v1 = Number(data[1]) / TEMPERATURE_TEXT;
+    const maxV = v0 > v1 ? v0 : v1;
+    const first = Math.exp(v0 - maxV);
+    const second = Math.exp(v1 - maxV);
     return second / (first + second);
   }
-  const value = values[0] || 0;
+  const value = Number(data[0]) || 0;
   if (outputType === "probabilities") return Math.max(0, Math.min(1, value));
-  return 1 / (1 + Math.exp(-Math.max(-30, Math.min(30, value))));
+  return 1 / (1 + Math.exp(-Math.max(-30, Math.min(30, value / TEMPERATURE_TEXT))));
 }
 
 function riskLevel(score) {

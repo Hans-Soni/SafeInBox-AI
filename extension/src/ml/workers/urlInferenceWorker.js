@@ -51,6 +51,8 @@ try {
   modelError = `ONNX Runtime Web is not installed: ${error.message}`;
 }
 
+const TEMPERATURE_URL = 1.0586;
+
 async function loadModel() {
   if (session) return session;
   if (sessionPromise) return sessionPromise;
@@ -83,19 +85,20 @@ function sigmoid(value) {
 }
 
 function extractModelProbability(output, outputName) {
-  const data = Array.from(output[outputName].data);
-  if (!data.length) throw new Error("The ONNX model returned an empty output tensor.");
+  const data = output[outputName] && output[outputName].data;
+  if (!data || !data.length) throw new Error("The ONNX model returned an empty output tensor.");
   if (data.length === 1) {
     const value = Number(data[0]);
-    return value >= 0 && value <= 1 ? value : sigmoid(value);
+    return value >= 0 && value <= 1 ? value : 1 / (1 + Math.exp(-value / TEMPERATURE_URL));
   }
-  const values = data.slice(-2).map(Number);
-  if (values.every((value) => value >= 0 && value <= 1) && Math.abs(values[0] + values[1] - 1) < 0.02) {
-    return values[1];
-  }
-  const max = Math.max(...values);
-  const exponents = values.map((value) => Math.exp(value - max));
-  return exponents[1] / exponents.reduce((sum, value) => sum + value, 0);
+  const len = data.length;
+  // Apply calibrated temperature scaling on logits with zero-allocation softmax
+  const l0 = Number(data[len - 2]) / TEMPERATURE_URL;
+  const l1 = Number(data[len - 1]) / TEMPERATURE_URL;
+  const maxL = l0 > l1 ? l0 : l1;
+  const exp0 = Math.exp(l0 - maxL);
+  const exp1 = Math.exp(l1 - maxL);
+  return exp1 / (exp0 + exp1);
 }
 
 async function infer(parsed) {
@@ -108,9 +111,12 @@ async function infer(parsed) {
         activeSession.inputNames.find((name) => name !== featureInput);
       const activeOrt = (typeof self !== "undefined" && self.ort) || (typeof ort !== "undefined" ? ort : null);
       if (!activeOrt) throw new Error("ONNX Runtime is not available.");
+      // Reuse existing TypedArrays directly to avoid garbage-collection overhead
+      const featData = parsed.featureVector instanceof Float32Array ? parsed.featureVector : Float32Array.from(parsed.featureVector);
+      const charData = parsed.charTensor instanceof Int32Array ? parsed.charTensor : Int32Array.from(parsed.charTensor);
       const feeds = {
-        [featureInput]: new activeOrt.Tensor("float32", Float32Array.from(parsed.featureVector), [1, parsed.featureVector.length]),
-        [characterInput]: new activeOrt.Tensor("int32", Int32Array.from(parsed.charTensor), [1, parsed.charTensor.length])
+        [featureInput]: new activeOrt.Tensor("float32", featData, [1, featData.length]),
+        [characterInput]: new activeOrt.Tensor("int32", charData, [1, charData.length])
       };
       const output = await activeSession.run(feeds);
       modelRisk = extractModelProbability(output, activeSession.outputNames[0]);
