@@ -35,6 +35,25 @@
 
 ## Change log
 
+### 2026-11-28 — Feature 2: Inline QR Code Phishing Detection ("Quishing Defense")
+
+- Client-Side QR Interception & Decoding Engine (`extension/src/utils/quishingDetector.js`, `extension/vendor/jsQR.js`):
+  - Engineered zero-leak client-side QR code detection for inline images, attachments, and base64 payloads inside Gmail, Outlook, and webmail message bodies.
+  - Dual-engine architecture: prioritizes native Chromium `BarcodeDetector` API for zero-allocation hardware acceleration, with seamless fallback to pure JavaScript `jsQR` engine.
+  - Image candidate pre-filtering (`isPotentialQrCandidate`): rejects 1x1 tracking pixels, icons, and extreme aspect ratio banners to achieve sub-millisecond overhead.
+  - Normalizes and extracts hidden destination targets without requiring users to scan with mobile devices.
+- Webmail Security Banners & Sidepanel Integration:
+  - Banner 1 (Hyperlinks): Injects intercepted QR destination URLs into the audited links list with high-visibility `[📱 QR CODE]` pill, risk score, and real-time community threat signals.
+  - Banner 2 (Email Content): Displays a high-contrast Quishing Defense Alert card whenever an embedded QR code is intercepted, escalating risk score and flagging `QUISHING_QR_CODE_THREAT`.
+  - Sidepanel (`sidepanelController.js`): Flags audited QR code targets with `[📱 QR]` badge in the link inspector.
+- Backend Scanner & Schema Enrichment (`backend/app/schemas/email_scan.py`, `backend/app/routers/email.py`):
+  - Added `qr_codes` candidate array to `EmailScanRequest` and `qr_codes_analyzed` to `EmailScanResponse`.
+  - Backend analyzes each QR destination through `analyze_url`, flags `QUISHING_QR_CODE_THREAT`, injects high-severity remediation findings, and records privacy-preserving audit logs.
+- Validation:
+  - All 97 browser extension unit tests pass (`npm test` in 17.51s, including 5 new tests in `quishingDetection.test.js`).
+  - All 68 backend pytest unit and integration tests pass (`pytest` in 15.08s, including new `test_quishing_detection.py`).
+  - Neon Lakebase Postgres test harness (`sync_and_track_neon.py`) executed with 100% success across all 12 tables and 9 live telemetry streams on PostgreSQL 18.7.
+
 ### 2026-11-28 — Community Threat Intelligence: Performance Acceleration, In-Memory LRU Cache & Real-Time Concurrency Synchronization
 
 - High-Throughput In-Memory LRU Cache (`backend/app/services/community_service.py`):

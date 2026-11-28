@@ -85,6 +85,41 @@ async def scan_email(
                     "error": "URL parsing failed"
                 })
 
+    # Quishing Defense: Analyze decoded QR codes if present
+    qr_codes_analyzed = []
+    if payload.qr_codes:
+        for qr_url in payload.qr_codes[:10]:
+            try:
+                qr_res = analyze_url(qr_url)
+                qr_codes_analyzed.append({
+                    "url": qr_url,
+                    "risk_score": qr_res["riskScore"],
+                    "risk_level": qr_res["riskLevel"],
+                    "attack_types": qr_res["attackTypes"],
+                    "findings": qr_res["findings"]
+                })
+                if qr_res["riskScore"] >= 0.4:
+                    if "QUISHING_QR_CODE_THREAT" not in result["threat_vectors"]:
+                        result["threat_vectors"].append("QUISHING_QR_CODE_THREAT")
+                    result["evidence"].insert(0, {
+                        "rule_id": "QUISHING_MALICIOUS_DESTINATION",
+                        "severity": "CRITICAL" if qr_res["riskScore"] >= 0.8 else "HIGH",
+                        "evidence": f"Embedded QR code leads to suspicious destination: {qr_url}",
+                        "remediation": "Do not scan this QR code with mobile devices. The destination link was flagged as malicious.",
+                        "threat_vector": "QUISHING_QR_CODE_THREAT"
+                    })
+                    result["risk_score"] = max(result["risk_score"], int(qr_res["riskScore"] * 100))
+                    result["riskScore"] = result["risk_score"] / 100.0
+                    if result["risk_level"] in ("SAFE", "LOW"):
+                        result["risk_level"] = "HIGH"
+            except Exception:
+                qr_codes_analyzed.append({
+                    "url": qr_url,
+                    "risk_score": 0.0,
+                    "risk_level": "UNKNOWN",
+                    "error": "QR target analysis failed"
+                })
+
     # Record privacy-preserving audit log (no email body/subject stored)
     audit_entry = ScanAuditLog(
         scan_type="EMAIL",
@@ -109,6 +144,7 @@ async def scan_email(
         company_intelligence=result["company_intelligence"],
         extracted_urls_count=len(payload.urls),
         urls_analyzed=urls_analyzed,
+        qr_codes_analyzed=qr_codes_analyzed,
         analysis_note=result["analysis_note"],
         community_intel=community_intel,
         latency_ms=round(elapsed, 2)

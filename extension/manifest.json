@@ -54,10 +54,12 @@
         "*://mail.yahoo.com/*"
       ],
       "js": [
+        "vendor/jsQR.js",
         "src/url/urlThreatParser.js",
         "src/email/urlCandidateExtractor.js",
         "src/utils/textParser.js",
         "src/email/emailTextAnalyzer.js",
+        "src/utils/quishingDetector.js",
         "src/content/contentScript.js"
       ],
       "css": ["src/content/webmailScanner.css"],

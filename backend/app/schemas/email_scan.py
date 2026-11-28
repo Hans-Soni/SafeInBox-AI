@@ -33,6 +33,7 @@ class EmailScanRequest(BaseModel):
     text: str = Field(default="", max_length=1_000_000)
     body: str = Field(default="", max_length=1_000_000)
     urls: list[str] = Field(default_factory=list, max_length=100)
+    qr_codes: list[str] = Field(default_factory=list, max_length=20)
 
 
 class EmailScanResponse(BaseModel):
@@ -48,6 +49,7 @@ class EmailScanResponse(BaseModel):
     company_intelligence: CompanyIntelligence
     extracted_urls_count: int
     urls_analyzed: list[dict[str, Any]] = []
+    qr_codes_analyzed: list[dict[str, Any]] = []
     analysis_note: str = ""
     community_intel: CommunityIntelResponse | None = None
     latency_ms: float

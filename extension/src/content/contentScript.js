@@ -636,6 +636,44 @@ async function processSingleEmailContainer(containerEl, clientType) {
     }, true);
   }
 
+  // STEP 1B: SCAN INLINE/EMBEDDED IMAGES FOR QR CODES (Quishing Defense)
+  let qrResults = [];
+  try {
+    if (typeof QuishingDetector !== "undefined" && typeof QuishingDetector.extractQrCodesFromContainer === "function") {
+      qrResults = await QuishingDetector.extractQrCodesFromContainer(containerEl);
+    }
+  } catch (err) {
+    console.warn("SafeInbox AI Quishing scan error:", err);
+  }
+
+  for (const qr of qrResults) {
+    if (qr.isUrl && qr.url) {
+      if (!urlScanMap.has(qr.url)) {
+        try {
+          const uRes = await scanSingleUrl(qr.url);
+          uRes.isFromQrCode = true;
+          uRes.qrRawData = qr.rawData;
+          urlScanMap.set(qr.url, uRes);
+        } catch {
+          urlScanMap.set(qr.url, {
+            target: qr.url,
+            isFromQrCode: true,
+            risk_score: 50,
+            risk_level: "MEDIUM",
+            evidence: [{
+              severity: "HIGH",
+              rule_id: "QUISHING_TARGET_UNVERIFIED",
+              evidence: `Decoded QR code leads to unverified destination: ${qr.url}`
+            }]
+          });
+        }
+      } else {
+        const existing = urlScanMap.get(qr.url);
+        if (existing) existing.isFromQrCode = true;
+      }
+    }
+  }
+
   // RENDER PERMANENT BANNER 1 (URLs ONLY)
   renderUrlSecurityBanner(banner1El, urlScanMap, emailData);
 
@@ -650,7 +688,8 @@ async function processSingleEmailContainer(containerEl, clientType) {
       bcc: emailData.bcc,
       subject: emailData.subject,
       body: emailData.cleanBodyText,
-      body_preview: emailData.cleanBodyText.substring(0, 500)
+      body_preview: emailData.cleanBodyText.substring(0, 500),
+      qr_codes: qrResults.filter(q => q.isUrl).map(q => q.url)
     });
   } catch (err) {
     console.error("SafeInbox AI email text analysis failed:", err);
@@ -663,8 +702,31 @@ async function processSingleEmailContainer(containerEl, clientType) {
         severity: "HIGH",
         rule_id: "EMAIL_TEXT_ANALYSIS_ERROR",
         evidence: `The local email analyzer failed: ${err.message || "unknown error"}`
-      }]
+      }],
+      threat_vectors: []
     };
+  }
+
+  if (qrResults.length > 0) {
+    if (!Array.isArray(emailVerdict.threat_vectors)) emailVerdict.threat_vectors = [];
+    if (!emailVerdict.threat_vectors.includes("QUISHING_QR_CODE_THREAT")) {
+      emailVerdict.threat_vectors.push("QUISHING_QR_CODE_THREAT");
+    }
+    if (!Array.isArray(emailVerdict.evidence)) emailVerdict.evidence = [];
+    const hasQrEv = emailVerdict.evidence.some(e => e.rule_id && e.rule_id.startsWith("QUISHING_"));
+    if (!hasQrEv) {
+      emailVerdict.evidence.unshift({
+        rule_id: "QUISHING_QR_CODE_DETECTED",
+        severity: "HIGH",
+        indicator: "embedded_qr_code",
+        evidence: `Email contains ${qrResults.length} embedded QR code(s). Target destination was intercepted and audited.`,
+        remediation: "Verify the sender and do not scan unsolicited QR codes on mobile devices."
+      });
+    }
+    emailVerdict.risk_score = Math.max(emailVerdict.risk_score || 0, 65);
+    if (emailVerdict.risk_level === "SAFE" || emailVerdict.risk_level === "LOW") {
+      emailVerdict.risk_level = "HIGH";
+    }
   }
 
   // RENDER PERMANENT BANNER 2 (CONTENT & TEXT ONLY)
@@ -912,7 +974,19 @@ function renderUrlSecurityBanner(bannerEl, urlScanMap, emailData) {
 
   // Build URL cards for Banner 1
   let cardsHtml = "";
-  if (totalUrls === 0) {
+  const hasQuishing = Array.from(urlScanMap.values()).some(r => r.isFromQrCode);
+  const quishingAlertHtml = hasQuishing ? `
+    <div class="aegisai-quishing-alert-box" style="display:flex !important; align-items:center !important; gap:10px !important; background:rgba(124, 58, 237, 0.2) !important; border:1px solid #7c3aed !important; border-radius:8px !important; padding:10px 14px !important; margin-bottom:12px !important;">
+      <span style="font-size:20px !important;">📱</span>
+      <div>
+        <div style="font-size:12px !important; font-weight:700 !important; color:#c4b5fd !important;">Quishing Defense Alert: Embedded QR Code Destination Intercepted</div>
+        <div style="font-size:11.5px !important; color:#e2e8f0 !important; margin-top:2px !important;">
+          SafeInbox AI intercepted the hidden QR destination URL before you scan with your mobile device. Audited below.
+        </div>
+      </div>
+    </div>` : "";
+
+  if (totalUrls === 0 && !hasQuishing) {
     cardsHtml = `<div class="aegisai-scan-no-items safe">No hyperlinks found. This does not verify the email itself as safe.</div>`;
   } else {
     let idx = 0;
@@ -934,10 +1008,16 @@ function renderUrlSecurityBanner(bannerEl, urlScanMap, emailData) {
       const communityHtml = (uRes.community_intel && (uRes.community_intel.flagged || uRes.community_intel.threat_count > 0))
         ? `<div class="aegisai-url-evidence" style="color:#ff6b7d !important; font-weight:600 !important;">🛡️ Community Alert: ${uRes.community_intel.threat_count} users flagged this URL as a threat</div>`
         : "";
+      const qrBadgeHtml = uRes.isFromQrCode
+        ? `<span class="aegisai-qr-badge" style="background:#7c3aed !important; color:#ffffff !important; font-size:10px !important; font-weight:700 !important; padding:2px 7px !important; border-radius:4px !important; margin-right:6px !important; flex-shrink:0 !important; display:inline-flex !important; align-items:center !important; gap:3px !important;">📱 QR CODE</span>`
+        : "";
       cardsHtml += `
         <div class="aegisai-url-card ${uClass}" id="aegisaiUrlCard_${idx}" style="max-width:100% !important; box-sizing:border-box !important; overflow:hidden !important; background:rgba(16,21,47,0.9) !important; border:1px solid #384358 !important;">
           <div class="aegisai-url-card-top" style="display:flex !important; align-items:flex-start !important; justify-content:space-between !important; gap:10px !important; width:100% !important; box-sizing:border-box !important;">
-            <a href="${escapeHtml(u)}" class="aegisai-url-text aegisai-banner-url-link" data-url="${escapeHtml(u)}" target="_blank" rel="noopener noreferrer" title="Click to visit destination: ${escapeHtml(u)}" style="font-family:'JetBrains Mono',Consolas,monospace !important; font-size:11.5px !important; color:#FFA586 !important; word-break:break-all !important; overflow-wrap:anywhere !important; white-space:normal !important; min-width:0 !important; flex:1 1 auto !important; text-decoration:underline !important; cursor:pointer !important;">${escapeHtml(defanged)}</a>
+            <div style="display:flex !important; align-items:center !important; flex:1 1 auto !important; min-width:0 !important;">
+              ${qrBadgeHtml}
+              <a href="${escapeHtml(u)}" class="aegisai-url-text aegisai-banner-url-link" data-url="${escapeHtml(u)}" target="_blank" rel="noopener noreferrer" title="Click to visit destination: ${escapeHtml(u)}" style="font-family:'JetBrains Mono',Consolas,monospace !important; font-size:11.5px !important; color:#FFA586 !important; word-break:break-all !important; overflow-wrap:anywhere !important; white-space:normal !important; min-width:0 !important; flex:1 1 auto !important; text-decoration:underline !important; cursor:pointer !important;">${escapeHtml(defanged)}</a>
+            </div>
             <span class="aegisai-url-score-pill ${uClass}" style="flex-shrink:0 !important; background:#242F40 !important; border:1px solid #384358 !important; color:#FFA586 !important;">${uBadge}</span>
           </div>
           ${evidenceHtml}
@@ -965,9 +1045,10 @@ function renderUrlSecurityBanner(bannerEl, urlScanMap, emailData) {
         <div class="aegisai-banner-summary">${escapeHtml(summaryText)}</div>
         <div class="aegisai-banner-urls-section">
           <div class="aegisai-banner-urls-header">
-            <span>Audited Hyperlinks (${totalUrls})</span>
+            <span>Audited Hyperlinks (${totalUrls + (hasQuishing ? urlScanMap.size - totalUrls : 0)})</span>
             <span class="aegisai-ml-badge">Browser Feedback</span>
           </div>
+          ${quishingAlertHtml}
           ${cardsHtml}
         </div>
       </div>
@@ -1095,6 +1176,17 @@ function renderContentSecurityBanner(bannerEl, verdict, emailData) {
             <div style="font-size:12px !important; font-weight:700 !important; color:#ff6b7d !important;">Community Threat Alert (Zero-PII)</div>
             <div style="font-size:11.5px !important; color:#cbd5e1 !important;">
               ${escapeHtml(verdict.community_intel.message || `${verdict.community_intel.threat_count} SafeInbox AI users flagged this email template as a threat.`)}
+            </div>
+          </div>
+        </div>` : ""}
+
+        ${verdict.threat_vectors && verdict.threat_vectors.includes("QUISHING_QR_CODE_THREAT") ? `
+        <div class="aegisai-quishing-intel-box" style="display:flex !important; align-items:center !important; gap:10px !important; background:rgba(124, 58, 237, 0.22) !important; border:1px solid #7c3aed !important; border-radius:8px !important; padding:8px 12px !important; margin:10px 0 !important;">
+          <span style="font-size:18px !important;">📱</span>
+          <div>
+            <div style="font-size:12px !important; font-weight:700 !important; color:#c4b5fd !important;">Quishing Defense: Embedded QR Code Intercepted</div>
+            <div style="font-size:11.5px !important; color:#cbd5e1 !important;">
+              An embedded QR code was detected in this message. SafeInbox AI extracted and audited the hidden target without requiring mobile scanning.
             </div>
           </div>
         </div>` : ""}

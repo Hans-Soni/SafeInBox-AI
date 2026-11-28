@@ -3274,11 +3274,19 @@ function updateCommunityIntelDisplay(community) {
         ? l.evidence.slice(0, 3).map((finding) => escapeHtml(finding.evidence || finding.rule_id || "Indicator detected")).join(" · ")
         : "No configured URL threat indicators detected.";
 
+      const isQr = Boolean(l.isFromQrCode || l.is_qr);
+      const qrBadgeHtml = isQr
+        ? `<span class="badge qr-badge" style="background:#7c3aed; color:#ffffff; font-size:10px; font-weight:700; padding:2px 6px; border-radius:4px; margin-right:6px; flex-shrink:0;">📱 QR</span>`
+        : "";
+
       const div = document.createElement("div");
       div.className = `link-item ${badgeClass}`;
       div.innerHTML = `
         <div class="link-item-top">
-          <span class="link-defanged" title="${escapeHtml(l.url)}">${escapeHtml(l.defanged || defangUrl(l.url))}</span>
+          <div style="display:flex; align-items:center; min-width:0; flex:1 1 auto;">
+            ${qrBadgeHtml}
+            <span class="link-defanged" title="${escapeHtml(l.url)}">${escapeHtml(l.defanged || defangUrl(l.url))}</span>
+          </div>
           <span class="link-score-badge ${badgeClass}">${badgeText}</span>
         </div>
         <div class="link-evidence-text">${l.model_available ? "ONNX + heuristic analysis" : "Heuristic-only analysis; no trained model available"}</div>
