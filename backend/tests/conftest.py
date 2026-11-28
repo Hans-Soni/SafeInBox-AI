@@ -8,7 +8,13 @@ import pytest
 from sqlalchemy import delete
 
 from app.database import AsyncSessionLocal, init_db
-from app.models.threat import FeedbackRecord, ScanAuditLog, ThreatURL
+from app.models.threat import (
+    CommunityThreatSignal,
+    FeedbackRecord,
+    ScanAuditLog,
+    ThreatLshSignature,
+    ThreatURL
+)
 from app.models.user import TermsConsent, User
 from app.services.auth_service import auth_limiter
 
@@ -20,6 +26,8 @@ async def prepare_database():
     await init_db()
     async with AsyncSessionLocal() as session:
         await session.execute(delete(ThreatURL))
+        await session.execute(delete(ThreatLshSignature))
+        await session.execute(delete(CommunityThreatSignal))
         await session.execute(delete(FeedbackRecord))
         await session.execute(delete(ScanAuditLog))
         await session.execute(delete(TermsConsent))

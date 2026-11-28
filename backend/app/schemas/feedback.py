@@ -3,6 +3,8 @@
 from datetime import datetime
 from pydantic import BaseModel, Field
 
+from app.schemas.community import CommunityIntelResponse
+
 
 class FeedbackRequest(BaseModel):
     """User-submitted assessment for URL or Email."""
@@ -16,8 +18,10 @@ class FeedbackResponse(BaseModel):
     """Response confirming feedback storage."""
     status: str = "recorded"
     target_hash: str
+    skeleton_hash: str | None = None
     target_type: str
     is_safe: bool
+    community_intel: CommunityIntelResponse | None = None
     recorded_at: datetime
 
 

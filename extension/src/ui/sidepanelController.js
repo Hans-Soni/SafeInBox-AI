@@ -43,6 +43,16 @@ document.addEventListener("DOMContentLoaded", async () => {
   el.intelSenderDomain   = document.getElementById("intelSenderDomain");
   el.companyStatusBadge  = document.getElementById("companyStatusBadge");
   el.intelDomainVerdict  = document.getElementById("intelDomainVerdict");
+  el.communityIntelCard   = document.getElementById("communityIntelCard");
+  el.communityStatusBadge = document.getElementById("communityStatusBadge");
+  el.communityVerdictMsg  = document.getElementById("communityVerdictMsg");
+  el.communityThreatCount = document.getElementById("communityThreatCount");
+  el.communitySafeCount   = document.getElementById("communitySafeCount");
+  el.communityIntelCard   = document.getElementById("communityIntelCard");
+  el.communityStatusBadge = document.getElementById("communityStatusBadge");
+  el.communityVerdictMsg  = document.getElementById("communityVerdictMsg");
+  el.communityThreatCount = document.getElementById("communityThreatCount");
+  el.communitySafeCount   = document.getElementById("communitySafeCount");
   el.directFeedbackCard  = document.getElementById("directFeedbackCard");
   el.directFeedbackBtns  = document.getElementById("directFeedbackBtns");
   el.directFeedbackMsg   = document.getElementById("directFeedbackMsg");
@@ -2795,6 +2805,7 @@ async function scanBatchLinks(links) {
 
   el.directFeedbackCard.style.display = "none";
   el.companyIntelCard.style.display   = "none";
+  if (el.communityIntelCard) el.communityIntelCard.style.display = "none";
 
   el.scanProgressContainer.style.display = "flex";
   el.scanProgressFill.style.width = "0%";
@@ -2855,6 +2866,7 @@ async function scanBatchLinks(links) {
       risk_level: res.risk_level,
       rule_triggers: evidences.length,
       evidence: evidences,
+      community_intel: res.community_intel || null,
       model_available: Boolean(res.model_available),
       analysis_note: res.analysis_note || ""
     });
@@ -2874,6 +2886,9 @@ async function scanBatchLinks(links) {
         ${topEvidence
           ? `<div class="link-evidence-text">⚠ ${escapeHtml(topEvidence.evidence || "Threat indicators detected")}</div>`
           : `<div class="link-evidence-text safe-ev">✓ No threat indicators found</div>`}
+        ${res.community_intel && (res.community_intel.flagged || res.community_intel.threat_count > 0)
+          ? `<div class="link-evidence-text" style="color:#ff6b7d;font-weight:600;">👥 Community Alert: ${res.community_intel.threat_count} users flagged this URL as a threat</div>`
+          : ""}
         <div class="link-feedback-row">
           <span class="link-fb-prompt">Was this URL safe?</span>
           <div class="link-fb-buttons" id="popupLinkFb_${i}">
@@ -3139,6 +3154,43 @@ function renderResults(res) {
     }
   } else {
     el.companyIntelCard.style.display = "none";
+  }
+
+  // Community Threat Intelligence Card (Zero-PII aggregate consensus)
+  const community = res.community_intel;
+  if (community && (community.flagged || community.threat_count > 0 || community.safe_count > 0)) {
+    if (el.communityIntelCard) {
+      el.communityIntelCard.style.display = "flex";
+      if (community.flagged || community.consensus === "THREAT") {
+        el.communityIntelCard.style.borderLeft = "3px solid #ff6b7d";
+        if (el.communityStatusBadge) {
+          el.communityStatusBadge.textContent = "CROWD THREAT";
+          el.communityStatusBadge.className = "intel-badge mismatch";
+        }
+        if (el.communityVerdictMsg) el.communityVerdictMsg.style.color = "#ff6b7d";
+      } else if (community.consensus === "SAFE") {
+        el.communityIntelCard.style.borderLeft = "3px solid var(--safe-green)";
+        if (el.communityStatusBadge) {
+          el.communityStatusBadge.textContent = "COMMUNITY SAFE";
+          el.communityStatusBadge.className = "intel-badge verified";
+        }
+        if (el.communityVerdictMsg) el.communityVerdictMsg.style.color = "var(--safe-green)";
+      } else {
+        el.communityIntelCard.style.borderLeft = "3px solid var(--warning-amber)";
+        if (el.communityStatusBadge) {
+          el.communityStatusBadge.textContent = "MIXED FEEDBACK";
+          el.communityStatusBadge.className = "intel-badge";
+        }
+        if (el.communityVerdictMsg) el.communityVerdictMsg.style.color = "var(--warning-amber)";
+      }
+      if (el.communityVerdictMsg) {
+        el.communityVerdictMsg.textContent = community.message || `${community.threat_count} users reported this pattern as a threat.`;
+      }
+      if (el.communityThreatCount) el.communityThreatCount.textContent = community.threat_count ?? 0;
+      if (el.communitySafeCount) el.communitySafeCount.textContent = community.safe_count ?? 0;
+    }
+  } else if (el.communityIntelCard) {
+    el.communityIntelCard.style.display = "none";
   }
 
   // Remediation Card

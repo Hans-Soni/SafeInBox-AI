@@ -274,6 +274,36 @@
         </div>
       </div>
 
+      <!-- Community Threat Intelligence Card (Tier 1 Zero-PII Consensus) -->
+      <div class="intel-card community-intel-card" id="communityIntelCard" style="display: none; border-left: 3px solid #ff6b7d;">
+        <div class="card-header-row">
+          <div class="card-header-title">
+            <svg class="card-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"></path>
+              <circle cx="9" cy="7" r="4"></circle>
+              <path d="M23 21v-2a4 4 0 0 0-3-3.87"></path>
+              <path d="M16 3.13a4 4 0 0 1 0 7.75"></path>
+            </svg>
+            Community Threat Intelligence
+          </div>
+          <span class="intel-badge mismatch" id="communityStatusBadge">CROWD THREAT</span>
+        </div>
+        <div class="intel-grid">
+          <div class="intel-item full-width">
+            <div class="intel-label">Zero-PII Consensus Alert</div>
+            <div class="intel-verdict" id="communityVerdictMsg" style="color: #ff6b7d; font-weight: 600;">--</div>
+          </div>
+          <div class="intel-item">
+            <div class="intel-label">Users Flagged Threat</div>
+            <div class="intel-value highlight" id="communityThreatCount" style="color: #ff6b7d;">0</div>
+          </div>
+          <div class="intel-item">
+            <div class="intel-label">Users Marked Safe</div>
+            <div class="intel-value" id="communitySafeCount" style="color: var(--safe-green);">0</div>
+          </div>
+        </div>
+      </div>
+
       <!-- Direct Safety Feedback Card -->
       <div class="feedback-card" id="directFeedbackCard" style="display: none;">
         <div class="feedback-card-header">

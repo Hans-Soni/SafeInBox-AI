@@ -931,6 +931,66 @@ async function analyzeEmailAndRespond(input) {
         result.analysis_note = analysisWarning || `Heuristic-only result; ${inferenceUnavailable}`;
       }
     }
+
+    // Optional Cloud Intelligence check for Community Threat Signals if backend is configured
+    try {
+      if (typeof chrome !== "undefined" && typeof fetch === "function") {
+        const cloudUrl = await getEffectiveBackendUrl();
+        if (cloudUrl) {
+          const isLocalhost = /^https?:\/\/(localhost|127\.0\.0\.1)(:\d+)?$/i.test(cloudUrl);
+          if (cloudUrl.startsWith("https://") || isLocalhost) {
+            const controller = typeof AbortController === "function" ? new AbortController() : null;
+            const timeoutId = controller ? setTimeout(() => controller.abort(), 2000) : null;
+            const stored = await chrome.storage.local.get(["safeinbox_auth"]);
+            const authHeaders = await getAuthHeader();
+            const fetchHeaders = { "Content-Type": "application/json", ...authHeaders };
+            if (stored && stored.safeinbox_auth && stored.safeinbox_auth.token) {
+              fetchHeaders["Authorization"] = `Bearer ${stored.safeinbox_auth.token}`;
+            }
+            const resp = await fetch(`${cloudUrl}/api/v1/scan/email`, {
+              method: "POST",
+              headers: fetchHeaders,
+              body: JSON.stringify({
+                subject: email.subject || "",
+                body: email.body || email.text || "",
+                sender: email.sender || ""
+              }),
+              signal: controller ? controller.signal : undefined
+            });
+            if (timeoutId) clearTimeout(timeoutId);
+            if (resp.ok) {
+              const cloudData = await resp.json();
+              if (cloudData.community_intel) {
+                result.community_intel = cloudData.community_intel;
+              }
+              if (cloudData.community_intel && cloudData.community_intel.flagged) {
+                result.risk_score = Math.max(result.risk_score || 0, 75);
+                if (result.risk_level === "SAFE" || result.risk_level === "LOW") {
+                  result.risk_level = "HIGH";
+                }
+                if (!Array.isArray(result.threat_vectors)) result.threat_vectors = [];
+                if (!result.threat_vectors.includes("COMMUNITY_CROWD_THREAT")) {
+                  result.threat_vectors.push("COMMUNITY_CROWD_THREAT");
+                }
+                if (!Array.isArray(result.evidence)) result.evidence = [];
+                const alreadyHasCrowdEv = result.evidence.some(e => e.rule_id === "COMMUNITY_CROWD_THREAT");
+                if (!alreadyHasCrowdEv) {
+                  result.evidence.unshift({
+                    rule_id: "COMMUNITY_CROWD_THREAT",
+                    severity: "HIGH",
+                    indicator: "community_threat_consensus",
+                    evidence: cloudData.community_intel.message || `${cloudData.community_intel.threat_count} users reported this email template as a threat.`
+                  });
+                }
+              }
+            }
+          }
+        }
+      }
+    } catch {
+      // Non-blocking: local heuristics and models remain completely reliable offline
+    }
+
     result = removeEmailIdentity(result);
     await chrome.storage.local.set({ [cacheKey]: { createdAt: Date.now(), result } });
     const items = await chrome.storage.local.get(null);
@@ -1097,6 +1157,9 @@ async function analyzeAndRespond(inputUrl) {
               for (const at of cloudData.attackTypes) {
                 if (!result.attackTypes.includes(at)) result.attackTypes.push(at);
               }
+            }
+            if (cloudData.community_intel) {
+              result.community_intel = cloudData.community_intel;
             }
             if (Array.isArray(cloudData.findings)) {
               for (const f of cloudData.findings) {

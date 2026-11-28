@@ -3,6 +3,8 @@
 from typing import Any
 from pydantic import BaseModel, Field
 
+from app.schemas.community import CommunityIntelResponse
+
 
 class EmailEvidence(BaseModel):
     """Specific evidence item in email threat analysis."""
@@ -47,5 +49,6 @@ class EmailScanResponse(BaseModel):
     extracted_urls_count: int
     urls_analyzed: list[dict[str, Any]] = []
     analysis_note: str = ""
+    community_intel: CommunityIntelResponse | None = None
     latency_ms: float
 

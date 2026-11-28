@@ -3,6 +3,8 @@
 from typing import Any
 from pydantic import BaseModel, Field
 
+from app.schemas.community import CommunityIntelResponse
+
 
 class URLScanRequest(BaseModel):
     """URL threat scan request payload."""
@@ -21,6 +23,7 @@ class URLScanResponse(BaseModel):
     attackTypes: list[str]
     findings: list[dict[str, Any]]
     cached: bool = False
+    community_intel: CommunityIntelResponse | None = None
     latency_ms: float
 
 

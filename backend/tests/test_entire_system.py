@@ -116,11 +116,16 @@ def test_system_2_signin_rate_limiting_and_jwt():
     assert decoded["sub"] == target_account
     assert "jti" in decoded
     print("  [OK] Sign-In rate limiter lockout and JWT minting passed.")
-    return token, decoded["jti"]
 
 
-def test_system_3_signout_and_token_invalidation(token, jti):
+def test_system_3_signout_and_token_invalidation():
     print("[*] 3. System E2E: Sign-Out & Active Token Invalidation...")
+    target_account = "analyst.signout@company.internal"
+    payload = {"sub": target_account, "user_id": 101, "role": "analyst"}
+    token = create_access_token(payload)
+    decoded = decode_access_token(token)
+    jti = decoded["jti"]
+
     # Verify token is initially not revoked
     assert is_token_revoked(jti) is False
 

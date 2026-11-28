@@ -931,6 +931,9 @@ function renderUrlSecurityBanner(bannerEl, urlScanMap, emailData) {
       const evidenceHtml = (uRes.evidence && uRes.evidence.length > 0)
         ? `<div class="aegisai-url-evidence">⚠️ ${escapeHtml(uRes.evidence[0].evidence || "Suspicious indicators detected")}</div>`
         : `<div class="aegisai-url-evidence" style="color:#34d399;">✓ No threat indicators found</div>`;
+      const communityHtml = (uRes.community_intel && (uRes.community_intel.flagged || uRes.community_intel.threat_count > 0))
+        ? `<div class="aegisai-url-evidence" style="color:#ff6b7d !important; font-weight:600 !important;">🛡️ Community Alert: ${uRes.community_intel.threat_count} users flagged this URL as a threat</div>`
+        : "";
       cardsHtml += `
         <div class="aegisai-url-card ${uClass}" id="aegisaiUrlCard_${idx}" style="max-width:100% !important; box-sizing:border-box !important; overflow:hidden !important; background:rgba(16,21,47,0.9) !important; border:1px solid #384358 !important;">
           <div class="aegisai-url-card-top" style="display:flex !important; align-items:flex-start !important; justify-content:space-between !important; gap:10px !important; width:100% !important; box-sizing:border-box !important;">
@@ -938,6 +941,7 @@ function renderUrlSecurityBanner(bannerEl, urlScanMap, emailData) {
             <span class="aegisai-url-score-pill ${uClass}" style="flex-shrink:0 !important; background:#242F40 !important; border:1px solid #384358 !important; color:#FFA586 !important;">${uBadge}</span>
           </div>
           ${evidenceHtml}
+          ${communityHtml}
           <div class="aegisai-url-feedback-bar" style="display:flex !important; flex-wrap:wrap !important; align-items:center !important; justify-content:flex-start !important; background:#242F40 !important; border:1px solid #384358 !important; border-radius:8px !important; padding:8px 12px !important; margin-top:8px !important; gap:12px !important; width:100% !important; box-sizing:border-box !important;">
             <span class="aegisai-feedback-prompt" style="font-size:12px !important; font-weight:700 !important; color:#f8fafc !important; white-space:nowrap !important;">Was this URL safe?</span>
             <div class="aegisai-feedback-buttons" id="aegisaiFbBtns_${idx}" style="display:inline-flex !important; align-items:center !important; gap:8px !important;">
@@ -1078,6 +1082,17 @@ function renderContentSecurityBanner(bannerEl, verdict, emailData) {
           <span class="aegisai-banner-score-pill">Score: ${verdict.risk_score}/100 · ${verdict.model_available ? "NLP model" : "Heuristics"}</span>
         </div>
         <div class="aegisai-banner-summary">${escapeHtml(verdict.summary || (isSafe ? "No configured email text indicators were detected. This is not a safety guarantee." : "Deceptive indicators or sender domain mismatch detected in text."))}</div>
+
+        ${verdict.community_intel && (verdict.community_intel.flagged || verdict.community_intel.threat_count > 0) ? `
+        <div class="aegisai-community-intel-box" style="display:flex !important; align-items:center !important; gap:10px !important; background:rgba(181, 26, 43, 0.22) !important; border:1px solid #B51A2B !important; border-radius:8px !important; padding:8px 12px !important; margin:10px 0 !important;">
+          <span style="font-size:18px !important;">🛡️</span>
+          <div>
+            <div style="font-size:12px !important; font-weight:700 !important; color:#ff6b7d !important;">Community Threat Alert (Zero-PII)</div>
+            <div style="font-size:11.5px !important; color:#cbd5e1 !important;">
+              ${escapeHtml(verdict.community_intel.message || `${verdict.community_intel.threat_count} SafeInbox AI users flagged this email template as a threat.`)}
+            </div>
+          </div>
+        </div>` : ""}
 
         <div class="aegisai-email-fields-card">
           <div class="aegisai-email-fields-title">📧 Scanned Email Fields (Text Only)</div>
@@ -1301,6 +1316,7 @@ function adaptEmailUrlResult(result) {
     risk_score: Math.round(result.riskScore * 100),
     risk_level: result.riskScore >= 0.8 ? "CRITICAL" : result.riskScore >= 0.6 ? "HIGH" : result.riskScore >= 0.35 ? "MEDIUM" : "SAFE",
     model_available: Boolean(result.modelAvailable),
+    community_intel: result.community_intel || null,
     analysisWarning: result.analysisWarning || "",
     evidence: (result.findings || []).map((finding) => ({
       severity: finding.penalty >= 0.5 ? "CRITICAL" : finding.penalty >= 0.3 ? "HIGH" : "MEDIUM",

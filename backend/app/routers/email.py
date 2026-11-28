@@ -9,6 +9,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.database import get_db
 from app.models.threat import ScanAuditLog
 from app.schemas.email_scan import EmailScanRequest, EmailScanResponse
+from app.services.community_service import get_community_intel
 from app.services.email_analyzer import analyze_email_text
 from app.services.url_analyzer import analyze_url
 
@@ -37,6 +38,31 @@ async def scan_email(
     email_dict = payload.model_dump()
     result = analyze_email_text(email_dict)
     content_hash = sha256_hash(email_dict)
+
+    # Query anonymous aggregate community crowd consensus in O(1) time
+    email_text = payload.text or payload.body or ""
+    community_intel = await get_community_intel(
+        db=db,
+        target=email_text,
+        target_type="EMAIL",
+        subject=payload.subject
+    )
+
+    if community_intel.flagged and community_intel.message:
+        result["evidence"].append({
+            "rule_id": "COMMUNITY_CROWD_THREAT",
+            "severity": "CRITICAL" if community_intel.threat_count >= 3 else "HIGH",
+            "evidence": community_intel.message,
+            "remediation": "Multiple SafeInbox AI community members previously flagged this email template as phishing. Do not click links or respond.",
+            "threat_vector": "COMMUNITY_REPORTED_THREAT"
+        })
+        if "COMMUNITY_REPORTED_THREAT" not in result["threat_vectors"]:
+            result["threat_vectors"].append("COMMUNITY_REPORTED_THREAT")
+        if result["risk_score"] < 60:
+            result["risk_score"] = min(85, max(result["risk_score"] + 30, 65))
+            result["riskScore"] = result["risk_score"] / 100.0
+            if result["risk_level"] in ("SAFE", "LOW"):
+                result["risk_level"] = "HIGH" if community_intel.threat_count >= 3 else "MEDIUM"
 
     # Optional URL scan for embedded URLs if provided
     urls_analyzed = []
@@ -84,6 +110,7 @@ async def scan_email(
         extracted_urls_count=len(payload.urls),
         urls_analyzed=urls_analyzed,
         analysis_note=result["analysis_note"],
+        community_intel=community_intel,
         latency_ms=round(elapsed, 2)
     )
 

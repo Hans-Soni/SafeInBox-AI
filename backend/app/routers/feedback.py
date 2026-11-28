@@ -12,6 +12,7 @@ from app.models.threat import FeedbackRecord
 from app.models.user import User
 from app.schemas.feedback import DatasetSplitResponse, FeedbackItem, FeedbackRequest, FeedbackResponse
 from app.services.auth_service import get_current_user
+from app.services.community_service import record_community_feedback
 from app.services.dataset_manager import assert_zero_leakage, split_dataset
 
 router = APIRouter(prefix="/api/v1", tags=["Feedback"])
@@ -27,7 +28,7 @@ async def submit_feedback(
     payload: FeedbackRequest,
     db: AsyncSession = Depends(get_db)
 ) -> FeedbackResponse:
-    """Store labeled user assessment for future model dataset training."""
+    """Store labeled user assessment for future model dataset training and update O(1) community threat signals."""
     target_clean = payload.target.strip()
     target_hash = sha256_hash(target_clean)
 
@@ -36,8 +37,17 @@ async def submit_feedback(
     max_len = 20000 if normalized_type == "TEXT" else 4096
     bounded_sample = target_clean[:max_len]
 
+    # Update O(1) aggregate community consensus signal
+    skeleton_hash, community_intel = await record_community_feedback(
+        db=db,
+        target=target_clean,
+        target_type=normalized_type,
+        is_safe=payload.is_safe
+    )
+
     record = FeedbackRecord(
         target_hash=target_hash,
+        skeleton_hash=skeleton_hash,
         target_type=normalized_type,
         is_safe=payload.is_safe,
         source=payload.source[:64],
@@ -49,8 +59,10 @@ async def submit_feedback(
     return FeedbackResponse(
         status="recorded",
         target_hash=target_hash,
+        skeleton_hash=skeleton_hash,
         target_type=normalized_type,
         is_safe=payload.is_safe,
+        community_intel=community_intel,
         recorded_at=datetime.now(timezone.utc)
     )
 

@@ -10,6 +10,7 @@ from app.database import get_db
 from app.models.threat import ThreatURL, ScanAuditLog, UrlClickLog
 from app.models.user import User, generate_user_index_id
 from app.services.auth_service import get_current_user
+from app.services.community_service import get_community_intel
 from app.schemas.url_scan import (
     URLScanRequest,
     URLScanResponse,
@@ -51,6 +52,9 @@ async def scan_url(
 
     url_hash = sha256_hash(result["canonicalUrl"])
 
+    # Query anonymous aggregate community crowd consensus in O(1) time
+    community_intel = await get_community_intel(db, target=payload.url, target_type="URL")
+
     # Check cache in DB
     cached_stmt = select(ThreatURL).where(ThreatURL.url_hash == url_hash)
     db_result = await db.execute(cached_stmt)
@@ -69,6 +73,7 @@ async def scan_url(
             attackTypes=cached_entry.attack_types,
             findings=cached_entry.findings,
             cached=True,
+            community_intel=community_intel,
             latency_ms=round(elapsed, 2)
         )
 
@@ -108,6 +113,7 @@ async def scan_url(
         attackTypes=result["attackTypes"],
         findings=result["findings"],
         cached=False,
+        community_intel=community_intel,
         latency_ms=round(elapsed, 2)
     )
 

@@ -28,7 +28,7 @@ if sys.platform == "win32":
 from app.database import engine, Base
 from app.config import settings
 from app.models.user import User, TermsConsent
-from app.models.threat import ThreatURL, FeedbackRecord, ScanAuditLog, UrlClickLog
+from app.models.threat import ThreatURL, FeedbackRecord, ScanAuditLog, UrlClickLog, CommunityThreatSignal, ThreatLshSignature
 from app.models.digest import SecurityDigestLog
 from sqlalchemy import text, select, func
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
@@ -55,6 +55,10 @@ async def main():
         await conn.run_sync(Base.metadata.create_all)
         print("    [OK] Base.metadata.create_all executed successfully.")
 
+        # Ensure migration columns and indexes exist
+        await conn.execute(text("ALTER TABLE feedback_records ADD COLUMN IF NOT EXISTS skeleton_hash VARCHAR(64);"))
+        await conn.execute(text("CREATE INDEX IF NOT EXISTS ix_feedback_records_skeleton_hash ON feedback_records (skeleton_hash);"))
+
         # Ensure alembic_version table exists and is stamped to head
         await conn.execute(text("""
             CREATE TABLE IF NOT EXISTS alembic_version (
@@ -65,11 +69,11 @@ async def main():
         res = await conn.execute(text("SELECT version_num FROM alembic_version;"))
         current_rev = res.scalar()
         if not current_rev:
-            await conn.execute(text("INSERT INTO alembic_version (version_num) VALUES ('i9d0e1f2a3b4');"))
-            print("    [OK] Stamped alembic_version to head revision 'i9d0e1f2a3b4'.")
+            await conn.execute(text("INSERT INTO alembic_version (version_num) VALUES ('k1f2a3b4c5d6');"))
+            print("    [OK] Stamped alembic_version to head revision 'k1f2a3b4c5d6'.")
         else:
-            await conn.execute(text("UPDATE alembic_version SET version_num = 'i9d0e1f2a3b4';"))
-            print(f"    [OK] Updated alembic_version from '{current_rev}' to head revision 'i9d0e1f2a3b4'.")
+            await conn.execute(text("UPDATE alembic_version SET version_num = 'k1f2a3b4c5d6';"))
+            print(f"    [OK] Updated alembic_version from '{current_rev}' to head revision 'k1f2a3b4c5d6'.")
 
     # 3. Inspect Schema in Neon
     print("\n[*] Phase 3: Inspecting Public Schema & Tables in Neon...")
@@ -83,6 +87,8 @@ async def main():
         "url_clicks",
         "email_otp_verifications",
         "refresh_tokens",
+        "community_threat_signals",
+        "threat_lsh_signatures",
     ]
 
     async with engine.connect() as conn:
@@ -238,11 +244,40 @@ async def main():
         )
         session.add(click_log)
         await session.flush()
-        print(f"    [7/7] Hyperlink Clicks Stream:   Saved click action id={click_log.id}, user_email={test_user_email}")
+        print(f"    [7/8] Hyperlink Clicks Stream:   Saved click action id={click_log.id}, user_email={test_user_email}")
 
-        # Commit all 7 records to Neon
+        # 8. Community Threat Signal
+        comm_sig = CommunityThreatSignal(
+            target_hash=test_email_hash,
+            target_type="TEXT",
+            threat_count=1,
+            safe_count=0,
+            last_reported_at=datetime.now(timezone.utc)
+        )
+        session.add(comm_sig)
+        await session.flush()
+        print(f"    [8/9] Community Threat Stream:  Saved threat signal hash={comm_sig.target_hash[:16]}..., threat_count={comm_sig.threat_count}")
+
+        # 9. Threat LSH Signature Stream
+        lsh_sig = ThreatLshSignature(
+            target_hash=test_email_hash,
+            target_type="EMAIL",
+            b0=12345, b1=23456, b2=34567, b3=45678,
+            b4=56789, b5=67890, b6=78901, b7=89012,
+            b8=90123, b9=11223, b10=22334, b11=33445,
+            b12=44556, b13=55667, b14=66778, b15=77889,
+            minhash_sig=",".join(str(i * 100) for i in range(32)),
+            threat_count=1,
+            safe_count=0,
+            last_reported_at=datetime.now(timezone.utc)
+        )
+        session.add(lsh_sig)
+        await session.flush()
+        print(f"    [9/9] Threat LSH Stream:        Saved LSH signature hash={lsh_sig.target_hash[:16]}..., threat_count={lsh_sig.threat_count}")
+
+        # Commit all records to Neon
         await session.commit()
-        print("\n    --> ALL 7 STREAMS COMMITTED TO NEON POSTGRES! <--")
+        print("\n    --> ALL 9 STREAMS COMMITTED TO NEON POSTGRES! <--")
 
     # 5. Retrieve & Verify Data Storage from Neon
     print("\n[*] Phase 5: Querying & Validating Stored Data Directly from Neon...")
@@ -300,6 +335,21 @@ async def main():
         assert ret_cl.defanged_url.startswith("hxxps://")
         print(f"    [OK] URL Click Log retrieved: id={ret_cl.id}, proceeded={ret_cl.proceeded}, defanged={ret_cl.defanged_url}")
 
+        # Verify Community Threat Signal
+        res_cs = await session.execute(select(CommunityThreatSignal).where(CommunityThreatSignal.target_hash == test_email_hash))
+        ret_cs = res_cs.scalar_one_or_none()
+        assert ret_cs is not None, "Failed to retrieve community threat signal from Neon"
+        assert ret_cs.threat_count == 1
+        print(f"    [OK] Community Threat Signal retrieved: target_hash={ret_cs.target_hash[:16]}..., threat_count={ret_cs.threat_count}")
+
+        # Verify Threat LSH Signature
+        res_lsh = await session.execute(select(ThreatLshSignature).where(ThreatLshSignature.target_hash == test_email_hash))
+        ret_lsh = res_lsh.scalar_one_or_none()
+        assert ret_lsh is not None, "Failed to retrieve Threat LSH Signature from Neon"
+        assert ret_lsh.threat_count == 1
+        assert ret_lsh.b0 == 12345
+        print(f"    [OK] Threat LSH Signature retrieved: target_hash={ret_lsh.target_hash[:16]}..., b0={ret_lsh.b0}, threat_count={ret_lsh.threat_count}")
+
     # 6. Cleanup Test Records
     preserve_data = "--keep" in sys.argv or "--preserve" in sys.argv
     if preserve_data:
@@ -315,6 +365,8 @@ async def main():
             await session.execute(text(f"DELETE FROM feedback_records WHERE target_hash IN ('{test_url_hash}', '{test_email_hash}');"))
             await session.execute(text(f"DELETE FROM security_digest_logs WHERE user_email = '{test_user_email}';"))
             await session.execute(text(f"DELETE FROM url_clicks WHERE user_email = '{test_user_email}';"))
+            await session.execute(text(f"DELETE FROM community_threat_signals WHERE target_hash = '{test_email_hash}';"))
+            await session.execute(text(f"DELETE FROM threat_lsh_signatures WHERE target_hash = '{test_email_hash}';"))
             await session.commit()
             print("    [OK] Test records cleaned up successfully.")
 
