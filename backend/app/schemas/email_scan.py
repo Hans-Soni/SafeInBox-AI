@@ -32,8 +32,8 @@ class EmailScanRequest(BaseModel):
     subject: str = Field(default="", max_length=1024)
     text: str = Field(default="", max_length=1_000_000)
     body: str = Field(default="", max_length=1_000_000)
-    urls: list[str] = Field(default_factory=list, max_length=100)
-    qr_codes: list[str] = Field(default_factory=list, max_length=20)
+    urls: list[str] | None = Field(default_factory=list, max_length=100)
+    qr_codes: list[str] | None = Field(default_factory=list, max_length=20)
 
 
 class EmailScanResponse(BaseModel):

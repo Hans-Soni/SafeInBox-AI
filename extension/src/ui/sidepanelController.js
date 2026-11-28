@@ -898,7 +898,7 @@ function submitTargetFeedback(target, isSafe, source, targetType = "URL") {
                     method: "POST",
                     headers: reqHeaders,
                     body: JSON.stringify({
-                      target: target.trim().slice(0, 4096),
+                      target: target.trim().slice(0, maxTargetLength),
                       target_type: targetType === "EMAIL" ? "TEXT" : "URL",
                       is_safe: isSafe,
                       source: source || "sidepanel"
@@ -2796,7 +2796,9 @@ async function executeEmailScan(text) {
     receiver,
     cc,
     bcc,
-    subject
+    subject,
+    urls: inp && inp.dataset.urls ? (() => { try { return JSON.parse(inp.dataset.urls); } catch { return []; } })() : [],
+    qr_codes: inp && inp.dataset.qrCodes ? (() => { try { return JSON.parse(inp.dataset.qrCodes); } catch { return []; } })() : []
   };
   let result;
   try {

@@ -66,8 +66,9 @@ async def scan_email(
 
     # Optional URL scan for embedded URLs if provided
     urls_analyzed = []
-    if payload.urls:
-        for u in payload.urls[:20]:  # Limit to 20 candidate URLs
+    candidate_urls = [u for u in (payload.urls or []) if isinstance(u, str)]
+    if candidate_urls:
+        for u in candidate_urls[:20]:  # Limit to 20 candidate URLs
             try:
                 u_res = analyze_url(u)
                 urls_analyzed.append({
@@ -87,8 +88,9 @@ async def scan_email(
 
     # Quishing Defense: Analyze decoded QR codes if present
     qr_codes_analyzed = []
-    if payload.qr_codes:
-        for qr_url in payload.qr_codes[:10]:
+    candidate_qr = [q for q in (payload.qr_codes or []) if isinstance(q, str)]
+    if candidate_qr:
+        for qr_url in candidate_qr[:10]:
             try:
                 qr_res = analyze_url(qr_url)
                 qr_codes_analyzed.append({
@@ -142,7 +144,7 @@ async def scan_email(
         recommended_action=result["recommended_action"],
         evidence=result["evidence"],
         company_intelligence=result["company_intelligence"],
-        extracted_urls_count=len(payload.urls),
+        extracted_urls_count=len(candidate_urls),
         urls_analyzed=urls_analyzed,
         qr_codes_analyzed=qr_codes_analyzed,
         analysis_note=result["analysis_note"],

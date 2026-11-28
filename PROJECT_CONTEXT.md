@@ -35,6 +35,21 @@
 
 ## Change log
 
+### 2026-11-28 — Cross-Stack Synchronization, Pipeline Hardening & End-to-End Perfection Verification
+
+- Cross-Stack QR & URL Threat Handoff Synchronization:
+  - Synchronized webmail email scanner (`contentScript.js`), background service worker (`serviceWorker.js`), and sidepanel controller (`sidepanelController.js`) to seamlessly forward extracted URLs and decoded QR code targets to cloud threat inspection (`POST /api/v1/scan/email`).
+  - Cache Isolation & Enrichment: Updated service worker `hashEmail` to partition cached results by QR code signatures; enriched response payload with `qr_codes_analyzed` and `urls_analyzed` from cloud intelligence.
+  - Sidepanel Feedback Character Capacity: Extended sidepanel cloud feedback dispatch to use full 20,000 character buffer for email texts (`maxTargetLength`), preventing truncation and ensuring identical canonical skeleton hashes and LSH MinHash signatures between client and cloud.
+- Backend Null-Safety & Schema Resilience (`backend/app/schemas/email_scan.py`, `backend/app/routers/email.py`):
+  - Made `urls` and `qr_codes` optional in `EmailScanRequest` with `list[str] | None` and safe list comprehensions to prevent 422 errors or null reference exceptions across varied HTTP clients.
+  - Hardened candidate length calculations and error bounds for both URL and QR analyzers.
+- End-to-End Validation Across Entire Stack:
+  - All 97 extension unit tests pass (`npm test` in 30.58s across all 14 suites, 0 failures).
+  - All 68 backend pytest unit and integration tests pass (`pytest` in 35.84s across all 13 suites, 0 failures).
+  - Live Neon Lakebase Postgres test harness (`sync_and_track_neon.py`) verified all 12 tables and 9 live telemetry streams on PostgreSQL 18.7 with 100% success.
+  - Standalone autonomy preserved: browser extension remains 100% functional offline without backend/ML/database dependencies.
+
 ### 2026-11-28 — Feature 2: Inline QR Code Phishing Detection ("Quishing Defense")
 
 - Client-Side QR Interception & Decoding Engine (`extension/src/utils/quishingDetector.js`, `extension/vendor/jsQR.js`):

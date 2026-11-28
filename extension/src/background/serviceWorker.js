@@ -800,7 +800,9 @@ async function hashEmail(email) {
     cc: email.cc || "",
     bcc: email.bcc || "",
     text: email.text || "",
-    body: email.body || ""
+    body: email.body || "",
+    urls: Array.isArray(email.urls) ? email.urls : [],
+    qr_codes: Array.isArray(email.qr_codes) ? email.qr_codes : []
   });
   const digest = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(canonical));
   return Array.from(new Uint8Array(digest), (byte) => byte.toString(16).padStart(2, "0")).join("");
@@ -887,6 +889,12 @@ async function analyzeEmailAndRespond(input) {
     }
     email[field] = input[field] || "";
   }
+  email.urls = Array.isArray(input.urls)
+    ? input.urls.filter((u) => typeof u === "string").slice(0, 100)
+    : [];
+  email.qr_codes = Array.isArray(input.qr_codes)
+    ? input.qr_codes.filter((q) => typeof q === "string").slice(0, 20)
+    : [];
   const totalCharacters = fields.reduce((sum, field) => sum + email[field].length, 0);
   if (!totalCharacters) throw new TypeError("Email content was empty.");
   if (totalCharacters > 1000000) throw new RangeError("Email content exceeds the 1 MB analysis limit.");
@@ -935,7 +943,9 @@ async function analyzeEmailAndRespond(input) {
           body: JSON.stringify({
             subject: email.subject || "",
             body: email.body || email.text || "",
-            sender: email.sender || ""
+            sender: email.sender || "",
+            urls: email.urls || [],
+            qr_codes: email.qr_codes || []
           }),
           signal: controller ? controller.signal : undefined
         });
@@ -974,6 +984,12 @@ async function analyzeEmailAndRespond(input) {
       if (cloudData) {
         if (cloudData.community_intel) {
           result.community_intel = cloudData.community_intel;
+        }
+        if (Array.isArray(cloudData.qr_codes_analyzed) && cloudData.qr_codes_analyzed.length > 0) {
+          result.qr_codes_analyzed = cloudData.qr_codes_analyzed;
+        }
+        if (Array.isArray(cloudData.urls_analyzed) && cloudData.urls_analyzed.length > 0) {
+          result.urls_analyzed = cloudData.urls_analyzed;
         }
         if (cloudData.community_intel && cloudData.community_intel.flagged) {
           result.risk_score = Math.max(result.risk_score || 0, 75);

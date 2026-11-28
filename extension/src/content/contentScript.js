@@ -689,6 +689,7 @@ async function processSingleEmailContainer(containerEl, clientType) {
       subject: emailData.subject,
       body: emailData.cleanBodyText,
       body_preview: emailData.cleanBodyText.substring(0, 500),
+      urls: Array.from(urlScanMap.keys()),
       qr_codes: qrResults.filter(q => q.isUrl).map(q => q.url)
     });
   } catch (err) {
@@ -1477,7 +1478,9 @@ async function scanEmailPayload(payload) {
     receiver: payload.receiver || "",
     cc: payload.cc || "",
     subject: payload.subject || "",
-    bcc: payload.bcc || ""
+    bcc: payload.bcc || "",
+    urls: Array.isArray(payload.urls) ? payload.urls : [],
+    qr_codes: Array.isArray(payload.qr_codes) ? payload.qr_codes : []
   };
   try {
     const response = await new Promise((resolve, reject) => {
