@@ -596,8 +596,9 @@ async function syncFeedbackWithBackend(feedback) {
     if (timeoutId) clearTimeout(timeoutId);
 
     if (resp.ok) {
+      const responseData = await resp.json().catch(() => null);
       flushAllPendingCloudData(backendUrl).catch(() => {});
-      return true;
+      return { ok: true, data: responseData };
     } else {
       await queuePendingCloudItem(PENDING_FEEDBACK_KEY, payload);
       return false;
@@ -911,6 +912,41 @@ async function analyzeEmailAndRespond(input) {
   if (inFlightEmailScans.has(hash)) return inFlightEmailScans.get(hash);
 
   const analysis = (async () => {
+    // Concurrent early-dispatch for cloud community threat intelligence
+    const cloudEmailPromise = (async () => {
+      try {
+        if (typeof chrome === "undefined" || typeof fetch !== "function") return null;
+        const cloudUrl = await getEffectiveBackendUrl();
+        if (!cloudUrl) return null;
+        const isLocalhost = /^https?:\/\/(localhost|127\.0\.0\.1)(:\d+)?$/i.test(cloudUrl);
+        if (!cloudUrl.startsWith("https://") && !isLocalhost) return null;
+
+        const controller = typeof AbortController === "function" ? new AbortController() : null;
+        const timeoutId = controller ? setTimeout(() => controller.abort(), 2000) : null;
+        const stored = await chrome.storage.local.get(["safeinbox_auth"]);
+        const authHeaders = await getAuthHeader();
+        const fetchHeaders = { "Content-Type": "application/json", ...authHeaders };
+        if (stored && stored.safeinbox_auth && stored.safeinbox_auth.token) {
+          fetchHeaders["Authorization"] = `Bearer ${stored.safeinbox_auth.token}`;
+        }
+        const resp = await fetch(`${cloudUrl}/api/v1/scan/email`, {
+          method: "POST",
+          headers: fetchHeaders,
+          body: JSON.stringify({
+            subject: email.subject || "",
+            body: email.body || email.text || "",
+            sender: email.sender || ""
+          }),
+          signal: controller ? controller.signal : undefined
+        });
+        if (timeoutId) clearTimeout(timeoutId);
+        if (resp.ok) return await resp.json();
+        return null;
+      } catch {
+        return null;
+      }
+    })();
+
     let result = null;
     let analysisWarning = "";
     try {
@@ -932,58 +968,31 @@ async function analyzeEmailAndRespond(input) {
       }
     }
 
-    // Optional Cloud Intelligence check for Community Threat Signals if backend is configured
+    // Await the concurrently dispatched cloud community threat intelligence
     try {
-      if (typeof chrome !== "undefined" && typeof fetch === "function") {
-        const cloudUrl = await getEffectiveBackendUrl();
-        if (cloudUrl) {
-          const isLocalhost = /^https?:\/\/(localhost|127\.0\.0\.1)(:\d+)?$/i.test(cloudUrl);
-          if (cloudUrl.startsWith("https://") || isLocalhost) {
-            const controller = typeof AbortController === "function" ? new AbortController() : null;
-            const timeoutId = controller ? setTimeout(() => controller.abort(), 2000) : null;
-            const stored = await chrome.storage.local.get(["safeinbox_auth"]);
-            const authHeaders = await getAuthHeader();
-            const fetchHeaders = { "Content-Type": "application/json", ...authHeaders };
-            if (stored && stored.safeinbox_auth && stored.safeinbox_auth.token) {
-              fetchHeaders["Authorization"] = `Bearer ${stored.safeinbox_auth.token}`;
-            }
-            const resp = await fetch(`${cloudUrl}/api/v1/scan/email`, {
-              method: "POST",
-              headers: fetchHeaders,
-              body: JSON.stringify({
-                subject: email.subject || "",
-                body: email.body || email.text || "",
-                sender: email.sender || ""
-              }),
-              signal: controller ? controller.signal : undefined
+      const cloudData = await cloudEmailPromise;
+      if (cloudData) {
+        if (cloudData.community_intel) {
+          result.community_intel = cloudData.community_intel;
+        }
+        if (cloudData.community_intel && cloudData.community_intel.flagged) {
+          result.risk_score = Math.max(result.risk_score || 0, 75);
+          if (result.risk_level === "SAFE" || result.risk_level === "LOW") {
+            result.risk_level = "HIGH";
+          }
+          if (!Array.isArray(result.threat_vectors)) result.threat_vectors = [];
+          if (!result.threat_vectors.includes("COMMUNITY_CROWD_THREAT")) {
+            result.threat_vectors.push("COMMUNITY_CROWD_THREAT");
+          }
+          if (!Array.isArray(result.evidence)) result.evidence = [];
+          const alreadyHasCrowdEv = result.evidence.some(e => e.rule_id === "COMMUNITY_CROWD_THREAT");
+          if (!alreadyHasCrowdEv) {
+            result.evidence.unshift({
+              rule_id: "COMMUNITY_CROWD_THREAT",
+              severity: "HIGH",
+              indicator: "community_threat_consensus",
+              evidence: cloudData.community_intel.message || `${cloudData.community_intel.threat_count} users reported this email template as a threat.`
             });
-            if (timeoutId) clearTimeout(timeoutId);
-            if (resp.ok) {
-              const cloudData = await resp.json();
-              if (cloudData.community_intel) {
-                result.community_intel = cloudData.community_intel;
-              }
-              if (cloudData.community_intel && cloudData.community_intel.flagged) {
-                result.risk_score = Math.max(result.risk_score || 0, 75);
-                if (result.risk_level === "SAFE" || result.risk_level === "LOW") {
-                  result.risk_level = "HIGH";
-                }
-                if (!Array.isArray(result.threat_vectors)) result.threat_vectors = [];
-                if (!result.threat_vectors.includes("COMMUNITY_CROWD_THREAT")) {
-                  result.threat_vectors.push("COMMUNITY_CROWD_THREAT");
-                }
-                if (!Array.isArray(result.evidence)) result.evidence = [];
-                const alreadyHasCrowdEv = result.evidence.some(e => e.rule_id === "COMMUNITY_CROWD_THREAT");
-                if (!alreadyHasCrowdEv) {
-                  result.evidence.unshift({
-                    rule_id: "COMMUNITY_CROWD_THREAT",
-                    severity: "HIGH",
-                    indicator: "community_threat_consensus",
-                    evidence: cloudData.community_intel.message || `${cloudData.community_intel.threat_count} users reported this email template as a threat.`
-                  });
-                }
-              }
-            }
           }
         }
       }
@@ -1091,6 +1100,39 @@ async function analyzeAndRespond(inputUrl) {
 
   if (inFlightScans.has(hash)) return inFlightScans.get(hash);
   const analysis = (async () => {
+    // Concurrent early-dispatch for cloud threat intelligence and community consensus
+    const cloudUrlPromise = (async () => {
+      try {
+        if (typeof chrome === "undefined" || typeof fetch !== "function") return null;
+        const cloudUrl = await getEffectiveBackendUrl();
+        if (!cloudUrl) return null;
+        const isLocalhost = /^https?:\/\/(localhost|127\.0\.0\.1)(:\d+)?$/i.test(cloudUrl);
+        if (!cloudUrl.startsWith("https://") && !isLocalhost) {
+          throw new Error("Protocol violation: Remote backend must use HTTPS.");
+        }
+        const controller = typeof AbortController === "function" ? new AbortController() : null;
+        const timeoutId = controller ? setTimeout(() => controller.abort(), 2000) : null;
+        const stored = await chrome.storage.local.get(["safeinbox_auth"]);
+        const authHeaders = await getAuthHeader();
+        const fetchHeaders = { "Content-Type": "application/json", ...authHeaders };
+        if (stored && stored.safeinbox_auth && stored.safeinbox_auth.token) {
+          fetchHeaders["Authorization"] = `Bearer ${stored.safeinbox_auth.token}`;
+        }
+        const resp = await fetch(`${cloudUrl}/api/v1/scan/url`, {
+          method: "POST",
+          headers: fetchHeaders,
+          body: JSON.stringify({ url: parsed.canonicalUrl }),
+          signal: controller ? controller.signal : undefined
+        });
+        if (timeoutId) clearTimeout(timeoutId);
+        if (resp.ok) return await resp.json();
+        return null;
+      } catch (err) {
+        if (err && err.message && err.message.includes("Protocol violation")) throw err;
+        return null;
+      }
+    })();
+
     let inferenceResult = null;
     let analysisWarning = "";
     try {
@@ -1115,62 +1157,37 @@ async function analyzeAndRespond(inputUrl) {
       metrics: parsed.metrics
     };
 
-    // Optional Cloud Intelligence check if configured and enabled
+    // Await the concurrently dispatched cloud scan
     try {
-      if (typeof chrome !== "undefined" && typeof fetch === "function") {
-        const cloudUrl = await getEffectiveBackendUrl();
-        if (cloudUrl) {
-          const isLocalhost = /^https?:\/\/(localhost|127\.0\.0\.1)(:\d+)?$/i.test(cloudUrl);
-          if (!cloudUrl.startsWith("https://") && !isLocalhost) {
-            // Reject non-HTTPS remote URL to prevent unencrypted traffic over the internet
-            throw new Error("Protocol violation: Remote backend must use HTTPS.");
+      const cloudData = await cloudUrlPromise;
+      if (cloudData) {
+        result.cloudEnriched = true;
+        result.cloudIntelligence = {
+          source: "SafeInbox Cloud API",
+          cached: Boolean(cloudData.cached),
+          riskScore: cloudData.riskScore,
+          riskLevel: cloudData.riskLevel,
+          attackTypes: cloudData.attackTypes || []
+        };
+        if (typeof cloudData.riskScore === "number" && cloudData.riskScore > result.riskScore) {
+          result.riskScore = cloudData.riskScore;
+        }
+        if (Array.isArray(cloudData.attackTypes)) {
+          for (const at of cloudData.attackTypes) {
+            if (!result.attackTypes.includes(at)) result.attackTypes.push(at);
           }
-          const controller = typeof AbortController === "function" ? new AbortController() : null;
-          const timeoutId = controller ? setTimeout(() => controller.abort(), 2500) : null;
-          const stored = await chrome.storage.local.get(["safeinbox_auth"]);
-          const authHeaders = await getAuthHeader();
-          const fetchHeaders = { "Content-Type": "application/json", ...authHeaders };
-          if (stored && stored.safeinbox_auth && stored.safeinbox_auth.token) {
-            fetchHeaders["Authorization"] = `Bearer ${stored.safeinbox_auth.token}`;
-          }
-          const resp = await fetch(`${cloudUrl}/api/v1/scan/url`, {
-            method: "POST",
-            headers: fetchHeaders,
-            body: JSON.stringify({ url: parsed.canonicalUrl }),
-            signal: controller ? controller.signal : undefined
-          });
-          if (timeoutId) clearTimeout(timeoutId);
-          if (resp.ok) {
-            const cloudData = await resp.json();
-            result.cloudEnriched = true;
-            result.cloudIntelligence = {
-              source: "SafeInbox Cloud API",
-              cached: Boolean(cloudData.cached),
-              riskScore: cloudData.riskScore,
-              riskLevel: cloudData.riskLevel,
-              attackTypes: cloudData.attackTypes || []
-            };
-            if (typeof cloudData.riskScore === "number" && cloudData.riskScore > result.riskScore) {
-              result.riskScore = cloudData.riskScore;
-            }
-            if (Array.isArray(cloudData.attackTypes)) {
-              for (const at of cloudData.attackTypes) {
-                if (!result.attackTypes.includes(at)) result.attackTypes.push(at);
-              }
-            }
-            if (cloudData.community_intel) {
-              result.community_intel = cloudData.community_intel;
-            }
-            if (Array.isArray(cloudData.findings)) {
-              for (const f of cloudData.findings) {
-                if (!result.findings.includes(f)) result.findings.push(f);
-              }
-            }
+        }
+        if (cloudData.community_intel) {
+          result.community_intel = cloudData.community_intel;
+        }
+        if (Array.isArray(cloudData.findings)) {
+          for (const f of cloudData.findings) {
+            if (!result.findings.includes(f)) result.findings.push(f);
           }
         }
       }
-    } catch {
-      // Non-blocking: local heuristics and models remain completely reliable
+    } catch (err) {
+      if (err && err.message && err.message.includes("Protocol violation")) throw err;
     }
 
     await writeCachedResult(cacheKey, result);

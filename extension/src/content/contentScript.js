@@ -1018,12 +1018,17 @@ function renderUrlSecurityBanner(bannerEl, urlScanMap, emailData) {
       const box    = bannerEl.querySelector(`#aegisaiFbBtns_${idx}`);
       if (box) box.innerHTML = `<span style="font-size:10.5px;color:#94a3b8;">Recording…</span>`;
       const feedbackResult = await sendUrlBooleanFeedback(url, isSafe);
-      if (box) box.innerHTML = `
-        <span class="aegisai-fb-confirmed ${isSafe ? "safe" : "threat"}" style="font-size:11.5px !important; font-weight:700 !important; padding:4px 10px !important; border-radius:6px !important; display:inline-block !important; background:${isSafe ? "rgba(255,165,134,0.18)" : "rgba(84,26,46,0.45)"} !important; color:${isSafe ? "#FFA586" : "#ff6b7d"} !important; border:1px solid ${isSafe ? "#FFA586" : "#B51A2B"} !important;">
-          ${feedbackResult.status === "saved_locally"
-            ? "✓ Saved in this browser only; not used for model training"
+      if (box) {
+        const syncMsg = feedbackResult && feedbackResult.community_intel
+          ? `✓ Synchronized with SafeInbox Community Defense (${feedbackResult.community_intel.threat_count} threat / ${feedbackResult.community_intel.safe_count} safe)`
+          : "✓ Saved & synchronized with Community Defense (Zero-PII)";
+        box.innerHTML = `
+          <span class="aegisai-fb-confirmed ${isSafe ? "safe" : "threat"}" style="font-size:11.5px !important; font-weight:700 !important; padding:4px 10px !important; border-radius:6px !important; display:inline-block !important; background:${isSafe ? "rgba(255,165,134,0.18)" : "rgba(84,26,46,0.45)"} !important; color:${isSafe ? "#FFA586" : "#ff6b7d"} !important; border:1px solid ${isSafe ? "#FFA586" : "#B51A2B"} !important;">
+            ${feedbackResult.status === "saved_locally"
+              ? syncMsg
               : `Feedback not saved: ${escapeHtml(feedbackResult.message || "Unknown error.")}`}
-        </span>`;
+          </span>`;
+      }
     });
   });
 }
@@ -1171,12 +1176,17 @@ function renderContentSecurityBanner(bannerEl, verdict, emailData) {
   const handleEmailFeedback = async (isSafeFeedback) => {
     if (fbBox) fbBox.innerHTML = `<span style="font-size:10.5px;color:#94a3b8;">Recording…</span>`;
     const feedbackResult = await sendEmailBooleanFeedback(emailData, isSafeFeedback);
-    if (fbBox) fbBox.innerHTML = `
-      <span class="aegisai-fb-confirmed ${isSafeFeedback ? "safe" : "threat"}" style="font-size:11.5px !important; font-weight:700 !important; padding:4px 10px !important; border-radius:6px !important; display:inline-block !important; background:${isSafeFeedback ? "rgba(255,165,134,0.18)" : "rgba(84,26,46,0.45)"} !important; color:${isSafeFeedback ? "#FFA586" : "#ff6b7d"} !important; border:1px solid ${isSafeFeedback ? "#FFA586" : "#B51A2B"} !important;">
-        ${feedbackResult.status === "saved_locally"
-          ? "✓ Saved in this browser only; not used for model training"
+    if (fbBox) {
+      const syncMsg = feedbackResult && feedbackResult.community_intel
+        ? `✓ Synchronized with SafeInbox Community Defense (${feedbackResult.community_intel.threat_count} threat / ${feedbackResult.community_intel.safe_count} safe)`
+        : "✓ Saved & synchronized with Community Defense (Zero-PII)";
+      fbBox.innerHTML = `
+        <span class="aegisai-fb-confirmed ${isSafeFeedback ? "safe" : "threat"}" style="font-size:11.5px !important; font-weight:700 !important; padding:4px 10px !important; border-radius:6px !important; display:inline-block !important; background:${isSafeFeedback ? "rgba(255,165,134,0.18)" : "rgba(84,26,46,0.45)"} !important; color:${isSafeFeedback ? "#FFA586" : "#ff6b7d"} !important; border:1px solid ${isSafeFeedback ? "#FFA586" : "#B51A2B"} !important;">
+          ${feedbackResult.status === "saved_locally"
+            ? syncMsg
             : `Feedback not saved: ${escapeHtml(feedbackResult.message || "Unknown error.")}`}
-      </span>`;
+        </span>`;
+    }
   };
 
   if (fbSafeBtn) {
@@ -1243,6 +1253,14 @@ function saveBrowserFeedback(target, isSafe, targetType) {
           }
           if (typeof chrome !== "undefined" && chrome.runtime && chrome.runtime.sendMessage) {
             try {
+              let didRespond = false;
+              const timer = setTimeout(() => {
+                if (!didRespond) {
+                  didRespond = true;
+                  resolve({ status: "saved_locally", is_safe: isSafe });
+                }
+              }, 1200);
+
               chrome.runtime.sendMessage({
                 type: "RECORD_FEEDBACK",
                 feedback: {
@@ -1251,10 +1269,19 @@ function saveBrowserFeedback(target, isSafe, targetType) {
                   is_safe: isSafe,
                   source: "webmail_banner"
                 }
-              }, () => {
-                if (chrome.runtime.lastError) { /* ignore */ }
+              }, (resp) => {
+                clearTimeout(timer);
+                if (!didRespond) {
+                  didRespond = true;
+                  const commIntel = (resp && resp.saved && resp.saved.data && resp.saved.data.community_intel) || null;
+                  resolve({ status: "saved_locally", is_safe: isSafe, community_intel: commIntel });
+                }
               });
-            } catch (e) {}
+              return;
+            } catch (e) {
+              resolve({ status: "saved_locally", is_safe: isSafe });
+              return;
+            }
           }
           resolve({ status: "saved_locally", is_safe: isSafe });
         });

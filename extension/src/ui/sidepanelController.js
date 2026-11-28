@@ -820,7 +820,12 @@ function initFeedbackActions() {
       el.directFeedbackBtns.style.display = "none";
       el.directFeedbackMsg.style.display = "flex";
       el.directFeedbackMsg.className = "feedback-status-msg safe";
-      el.directFeedbackMsg.textContent = "Saving your assessment in this browser...";
+      el.directFeedbackMsg.textContent = "Saving and synchronizing with SafeInbox Community Defense...";
+      if (el.communityIntelCard && el.communitySafeCount) {
+        const cur = parseInt(el.communitySafeCount.textContent || "0", 10) || 0;
+        el.communitySafeCount.textContent = cur + 1;
+        el.communityIntelCard.style.display = "flex";
+      }
       const result = await submitTargetFeedback(target, true, "popup_direct", targetType);
       el.directFeedbackMsg.textContent = feedbackResultMessage(result, true);
     });
@@ -841,7 +846,12 @@ function initFeedbackActions() {
       el.directFeedbackBtns.style.display = "none";
       el.directFeedbackMsg.style.display = "flex";
       el.directFeedbackMsg.className = "feedback-status-msg threat";
-      el.directFeedbackMsg.textContent = "Saving your assessment in this browser...";
+      el.directFeedbackMsg.textContent = "Saving and synchronizing with SafeInbox Community Defense...";
+      if (el.communityIntelCard && el.communityThreatCount) {
+        const cur = parseInt(el.communityThreatCount.textContent || "0", 10) || 0;
+        el.communityThreatCount.textContent = cur + 1;
+        el.communityIntelCard.style.display = "flex";
+      }
       const result = await submitTargetFeedback(target, false, "popup_direct", targetType);
       el.directFeedbackMsg.textContent = feedbackResultMessage(result, false);
     });
@@ -893,6 +903,16 @@ function submitTargetFeedback(target, isSafe, source, targetType = "URL") {
                       is_safe: isSafe,
                       source: source || "sidepanel"
                     })
+                  }).then(async (resp) => {
+                    if (resp && resp.ok) {
+                      const fbData = await resp.json().catch(() => null);
+                      if (fbData && fbData.community_intel) {
+                        updateCommunityIntelDisplay(fbData.community_intel);
+                        if (lastScanResult) {
+                          lastScanResult.community_intel = fbData.community_intel;
+                        }
+                      }
+                    }
                   }).catch(() => {});
                 }
               });
@@ -3156,42 +3176,53 @@ function renderResults(res) {
     el.companyIntelCard.style.display = "none";
   }
 
-  // Community Threat Intelligence Card (Zero-PII aggregate consensus)
-  const community = res.community_intel;
+function updateCommunityIntelDisplay(community) {
+  if (!el.communityIntelCard) return;
   if (community && (community.flagged || community.threat_count > 0 || community.safe_count > 0)) {
-    if (el.communityIntelCard) {
-      el.communityIntelCard.style.display = "flex";
-      if (community.flagged || community.consensus === "THREAT") {
-        el.communityIntelCard.style.borderLeft = "3px solid #ff6b7d";
-        if (el.communityStatusBadge) {
-          el.communityStatusBadge.textContent = "CROWD THREAT";
-          el.communityStatusBadge.className = "intel-badge mismatch";
-        }
-        if (el.communityVerdictMsg) el.communityVerdictMsg.style.color = "#ff6b7d";
-      } else if (community.consensus === "SAFE") {
-        el.communityIntelCard.style.borderLeft = "3px solid var(--safe-green)";
-        if (el.communityStatusBadge) {
-          el.communityStatusBadge.textContent = "COMMUNITY SAFE";
-          el.communityStatusBadge.className = "intel-badge verified";
-        }
-        if (el.communityVerdictMsg) el.communityVerdictMsg.style.color = "var(--safe-green)";
-      } else {
-        el.communityIntelCard.style.borderLeft = "3px solid var(--warning-amber)";
-        if (el.communityStatusBadge) {
-          el.communityStatusBadge.textContent = "MIXED FEEDBACK";
-          el.communityStatusBadge.className = "intel-badge";
-        }
-        if (el.communityVerdictMsg) el.communityVerdictMsg.style.color = "var(--warning-amber)";
+    el.communityIntelCard.style.display = "flex";
+    if (community.flagged || community.consensus === "THREAT") {
+      el.communityIntelCard.style.borderLeft = "3px solid #ff6b7d";
+      if (el.communityStatusBadge) {
+        el.communityStatusBadge.textContent = "CROWD THREAT";
+        el.communityStatusBadge.className = "intel-badge mismatch";
       }
-      if (el.communityVerdictMsg) {
-        el.communityVerdictMsg.textContent = community.message || `${community.threat_count} users reported this pattern as a threat.`;
+      if (el.communityVerdictMsg) el.communityVerdictMsg.style.color = "#ff6b7d";
+    } else if (community.consensus === "SAFE") {
+      el.communityIntelCard.style.borderLeft = "3px solid var(--safe-green)";
+      if (el.communityStatusBadge) {
+        el.communityStatusBadge.textContent = "COMMUNITY SAFE";
+        el.communityStatusBadge.className = "intel-badge verified";
       }
-      if (el.communityThreatCount) el.communityThreatCount.textContent = community.threat_count ?? 0;
-      if (el.communitySafeCount) el.communitySafeCount.textContent = community.safe_count ?? 0;
+      if (el.communityVerdictMsg) el.communityVerdictMsg.style.color = "var(--safe-green)";
+    } else {
+      el.communityIntelCard.style.borderLeft = "3px solid var(--warning-amber)";
+      if (el.communityStatusBadge) {
+        el.communityStatusBadge.textContent = "MIXED FEEDBACK";
+        el.communityStatusBadge.className = "intel-badge";
+      }
+      if (el.communityVerdictMsg) el.communityVerdictMsg.style.color = "var(--warning-amber)";
     }
-  } else if (el.communityIntelCard) {
+    if (el.communityVerdictMsg) {
+      el.communityVerdictMsg.textContent = community.message || `${community.threat_count} users reported this pattern as a threat.`;
+    }
+    if (el.communityThreatCount) el.communityThreatCount.textContent = community.threat_count ?? 0;
+    if (el.communitySafeCount) el.communitySafeCount.textContent = community.safe_count ?? 0;
+
+    // Smooth subtle highlight pulse to confirm live synchronization
+    try {
+      el.communityIntelCard.style.transition = "transform 0.2s ease, box-shadow 0.2s ease";
+      el.communityIntelCard.style.transform = "scale(1.015)";
+      setTimeout(() => {
+        if (el.communityIntelCard) el.communityIntelCard.style.transform = "scale(1.0)";
+      }, 200);
+    } catch {}
+  } else {
     el.communityIntelCard.style.display = "none";
   }
+}
+
+  // Community Threat Intelligence Card (Zero-PII aggregate consensus)
+  updateCommunityIntelDisplay(res.community_intel);
 
   // Remediation Card
   el.remediationText.textContent = res.recommended_action || "Standard security scrutiny applies.";

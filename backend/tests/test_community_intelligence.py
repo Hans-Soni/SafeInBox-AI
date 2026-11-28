@@ -1,5 +1,7 @@
 """Test Suite for Privacy-Preserving Community Threat Intelligence (CrowdShield Tier 1)."""
 
+import time
+
 import pytest
 from httpx import ASGITransport, AsyncClient
 
@@ -164,3 +166,52 @@ async def test_community_url_feedback_and_scan_flow():
         assert intel["flagged"] is True
         assert intel["threat_count"] == 1
         assert "link as a threat" in intel["message"]
+
+
+@pytest.mark.asyncio
+async def test_community_in_memory_cache_synchronization():
+    """Verify high-speed in-memory cache hit rate and real-time synchronization on feedback update."""
+    await init_db()
+    transport = ASGITransport(app=app)
+    async with AsyncClient(transport=transport, base_url="http://test") as client:
+        test_url = "https://speed-test-malicious-domain.com/login?token=abc1"
+
+        # 1. Report threat
+        fb1 = await client.post("/api/v1/feedback", json={
+            "target": test_url,
+            "is_safe": False,
+            "target_type": "URL",
+            "source": "webmail_banner"
+        })
+        assert fb1.status_code == 201
+
+        # 2. Scan 1 -> populates / reads from memory cache
+        t0 = time.perf_counter()
+        scan1 = await client.post("/api/v1/scan/url", json={"url": test_url})
+        t1 = time.perf_counter()
+        assert scan1.status_code == 200
+        assert scan1.json()["community_intel"]["threat_count"] == 1
+
+        # 3. Scan 2 -> hits in-memory cache directly with near-zero latency
+        t2 = time.perf_counter()
+        scan2 = await client.post("/api/v1/scan/url", json={"url": test_url})
+        t3 = time.perf_counter()
+        assert scan2.status_code == 200
+        assert scan2.json()["community_intel"]["threat_count"] == 1
+        # Memory cache hit should execute extremely fast
+        assert (t3 - t2) <= (t1 - t0) + 0.1
+
+        # 4. Immediate feedback 2 -> must immediately synchronize cache with count=2
+        fb2 = await client.post("/api/v1/feedback", json={
+            "target": test_url,
+            "is_safe": False,
+            "target_type": "URL",
+            "source": "webmail_banner"
+        })
+        assert fb2.status_code == 201
+
+        # 5. Scan 3 -> immediately sees synchronized threat_count=2
+        scan3 = await client.post("/api/v1/scan/url", json={"url": test_url})
+        assert scan3.status_code == 200
+        assert scan3.json()["community_intel"]["threat_count"] == 2
+
