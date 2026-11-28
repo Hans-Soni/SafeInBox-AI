@@ -36,6 +36,122 @@ COERCION_RE = re.compile(
     r"\b(?:legal action|police report|law enforcement|account termination|permanently deleted|arrest warrant|immediately or else|avoid prosecution)\b",
     re.I
 )
+AUTHORITY_EXEC_RE = re.compile(
+    r"\b(?:executive (?:board|committee|office)|chief executive|c-suite|cfo|ceo|coo|director|managing partner|human resources|hr department|security operations|compliance officer|internal audit|mandatory compliance)\b",
+    re.I
+)
+AUTHORITY_CONFIDENTIAL_RE = re.compile(
+    r"\b(?:strictly confidential|keep this (?:private|between us)|do not (?:discuss|share|forward|mention)|private matter|handle immediately|handle discreetly)\b",
+    re.I
+)
+
+
+def compute_manipulation_radar(subject: str, body_text: str, sender_raw: str, threat_vectors: set[str]) -> dict:
+    """
+    Calculate the 4-axis Psychological Coercion & Manipulation Radar:
+    1. Urgency Pressure (0-100)
+    2. Authority Coercion (0-100)
+    3. Financial Hook (0-100)
+    4. Credential Harvest Cue (0-100)
+    Runs in strict O(1) time complexity with zero database queries.
+    """
+    text_combined = f"{subject}\n{body_text}".lower()
+
+    # Axis 1: Urgency Pressure
+    urgency_score = 0
+    if URGENCY_RE.search(subject):
+        urgency_score += 45
+    urgency_matches = len(URGENCY_RE.findall(body_text))
+    urgency_score += min(55, urgency_matches * 25)
+    if "ARTIFICIAL_URGENCY" in threat_vectors:
+        urgency_score = max(urgency_score, 50)
+    urgency_score = min(100, urgency_score)
+
+    # Axis 2: Authority Coercion
+    authority_score = 0
+    if COERCION_RE.search(subject):
+        authority_score += 40
+    if COERCION_RE.search(body_text):
+        authority_score += 35
+    if AUTHORITY_EXEC_RE.search(text_combined):
+        authority_score += 30
+    if AUTHORITY_CONFIDENTIAL_RE.search(text_combined):
+        authority_score += 25
+    if "BEHAVIORAL_MANIPULATION" in threat_vectors or "SENDER_SPOOFING" in threat_vectors:
+        authority_score = max(authority_score, 45)
+    authority_score = min(100, authority_score)
+
+    # Axis 3: Financial Hook
+    financial_score = 0
+    if FINANCIAL_RE.search(subject):
+        financial_score += 40
+    financial_matches = len(FINANCIAL_RE.findall(body_text))
+    financial_score += min(60, financial_matches * 25)
+    if "FINANCIAL_SCAM" in threat_vectors:
+        financial_score = max(financial_score, 50)
+    financial_score = min(100, financial_score)
+
+    # Axis 4: Credential Harvest Cue
+    credential_score = 0
+    if CREDENTIAL_RE.search(subject):
+        credential_score += 45
+    credential_matches = len(CREDENTIAL_RE.findall(body_text))
+    credential_score += min(55, credential_matches * 25)
+    if "CREDENTIAL_HARVESTING" in threat_vectors:
+        credential_score = max(credential_score, 55)
+    credential_score = min(100, credential_score)
+
+    # Dominant Tactic
+    scores = {
+        "URGENCY": urgency_score,
+        "AUTHORITY": authority_score,
+        "FINANCIAL": financial_score,
+        "CREDENTIAL": credential_score
+    }
+    max_axis, max_val = max(scores.items(), key=lambda x: x[1])
+    dominant_tactic = max_axis if max_val >= 25 else "NONE"
+
+    # Cognitive Load Level
+    if max_val >= 75:
+        cognitive_load_level = "SEVERE"
+    elif max_val >= 50 or (sum(scores.values()) / 4) >= 35:
+        cognitive_load_level = "HIGH"
+    elif max_val >= 25:
+        cognitive_load_level = "MODERATE"
+    else:
+        cognitive_load_level = "LOW"
+
+    # Active tactics tags
+    detected_tactics = []
+    if urgency_score >= 35:
+        detected_tactics.append(f"Urgency Pressure ({urgency_score}%)")
+    if authority_score >= 35:
+        detected_tactics.append(f"Authority Coercion ({authority_score}%)")
+    if financial_score >= 35:
+        detected_tactics.append(f"Financial Hook ({financial_score}%)")
+    if credential_score >= 35:
+        detected_tactics.append(f"Credential Harvest ({credential_score}%)")
+
+    # Informative psychological summary
+    if cognitive_load_level == "SEVERE":
+        radar_summary = f"Severe psychological manipulation detected ({dominant_tactic}). Uses extreme pressure or intimidation to bypass rational verification."
+    elif cognitive_load_level == "HIGH":
+        radar_summary = f"High social engineering cues detected ({dominant_tactic}). Multiple coercive tactics active to prompt immediate unverified action."
+    elif cognitive_load_level == "MODERATE":
+        radar_summary = f"Moderate cognitive pressure detected ({dominant_tactic}). Contains persuasive or urgent cues warranting sender verification."
+    else:
+        radar_summary = "Low psychological manipulation detected. Message lacks overt cognitive coercion or urgency cues."
+
+    return {
+        "urgency_score": urgency_score,
+        "authority_score": authority_score,
+        "financial_score": financial_score,
+        "credential_score": credential_score,
+        "dominant_tactic": dominant_tactic,
+        "cognitive_load_level": cognitive_load_level,
+        "detected_tactics": detected_tactics,
+        "radar_summary": radar_summary
+    }
 
 
 def strip_html(text: str) -> str:
@@ -204,6 +320,7 @@ def analyze_email_text(input_data: dict) -> dict:
             "sender_domain": domain,
             "canonical_domains": claimed_brand["domains"] if claimed_brand else []
         },
+        "manipulation_radar": compute_manipulation_radar(subject, body_text, sender_raw, threat_vectors),
         "extracted_urls_count": len(input_data.get("urls") or []),
         "analysis_note": "Server-side heuristic analysis complete."
     }

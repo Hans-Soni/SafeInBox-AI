@@ -23,6 +23,18 @@ class CompanyIntelligence(BaseModel):
     canonical_domains: list[str] = []
 
 
+class ManipulationRadar(BaseModel):
+    """Psychological Coercion & Manipulation Radar across 4 behavioral axes."""
+    urgency_score: int = Field(ge=0, le=100)
+    authority_score: int = Field(ge=0, le=100)
+    financial_score: int = Field(ge=0, le=100)
+    credential_score: int = Field(ge=0, le=100)
+    dominant_tactic: str
+    cognitive_load_level: str
+    detected_tactics: list[str] = []
+    radar_summary: str = ""
+
+
 class EmailScanRequest(BaseModel):
     """Email threat scan request payload."""
     sender: str = Field(default="", max_length=512)
@@ -52,5 +64,6 @@ class EmailScanResponse(BaseModel):
     qr_codes_analyzed: list[dict[str, Any]] = []
     analysis_note: str = ""
     community_intel: CommunityIntelResponse | None = None
+    manipulation_radar: ManipulationRadar | None = None
     latency_ms: float
 

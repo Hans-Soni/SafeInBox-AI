@@ -53,6 +53,18 @@ document.addEventListener("DOMContentLoaded", async () => {
   el.communityVerdictMsg  = document.getElementById("communityVerdictMsg");
   el.communityThreatCount = document.getElementById("communityThreatCount");
   el.communitySafeCount   = document.getElementById("communitySafeCount");
+  el.manipulationRadarCard = document.getElementById("manipulationRadarCard");
+  el.radarCognitiveBadge   = document.getElementById("radarCognitiveBadge");
+  el.radarSummaryBox       = document.getElementById("radarSummaryBox");
+  el.radarUrgencyVal       = document.getElementById("radarUrgencyVal");
+  el.radarUrgencyFill      = document.getElementById("radarUrgencyFill");
+  el.radarAuthorityVal     = document.getElementById("radarAuthorityVal");
+  el.radarAuthorityFill    = document.getElementById("radarAuthorityFill");
+  el.radarFinancialVal     = document.getElementById("radarFinancialVal");
+  el.radarFinancialFill    = document.getElementById("radarFinancialFill");
+  el.radarCredentialVal    = document.getElementById("radarCredentialVal");
+  el.radarCredentialFill   = document.getElementById("radarCredentialFill");
+  el.radarTagsRow          = document.getElementById("radarTagsRow");
   el.directFeedbackCard  = document.getElementById("directFeedbackCard");
   el.directFeedbackBtns  = document.getElementById("directFeedbackBtns");
   el.directFeedbackMsg   = document.getElementById("directFeedbackMsg");
@@ -2828,6 +2840,7 @@ async function scanBatchLinks(links) {
   el.directFeedbackCard.style.display = "none";
   el.companyIntelCard.style.display   = "none";
   if (el.communityIntelCard) el.communityIntelCard.style.display = "none";
+  if (el.manipulationRadarCard) el.manipulationRadarCard.style.display = "none";
 
   el.scanProgressContainer.style.display = "flex";
   el.scanProgressFill.style.width = "0%";
@@ -3225,6 +3238,89 @@ function updateCommunityIntelDisplay(community) {
 
   // Community Threat Intelligence Card (Zero-PII aggregate consensus)
   updateCommunityIntelDisplay(res.community_intel);
+
+  // Psychological Coercion & Manipulation Radar Card (Feature 4)
+  function updateManipulationRadarDisplay(radar) {
+    if (!el.manipulationRadarCard) return;
+    const isEmail = res && (res.target_type === "EMAIL" || Boolean(res.manipulation_radar || radar));
+    if (!isEmail || !radar) {
+      el.manipulationRadarCard.style.display = "none";
+      return;
+    }
+
+    el.manipulationRadarCard.style.display = "flex";
+    const cognitiveLevel = radar.cognitive_load_level || "LOW";
+    if (el.radarCognitiveBadge) {
+      el.radarCognitiveBadge.textContent = cognitiveLevel;
+      if (cognitiveLevel === "SEVERE") {
+        el.radarCognitiveBadge.className = "intel-badge mismatch";
+        el.radarCognitiveBadge.style.background = "rgba(239, 68, 68, 0.2)";
+        el.radarCognitiveBadge.style.color = "#fca5a5";
+        el.radarCognitiveBadge.style.borderColor = "rgba(239, 68, 68, 0.5)";
+        el.manipulationRadarCard.style.borderLeftColor = "#ef4444";
+      } else if (cognitiveLevel === "HIGH") {
+        el.radarCognitiveBadge.className = "intel-badge mismatch";
+        el.radarCognitiveBadge.style.background = "rgba(168, 85, 247, 0.2)";
+        el.radarCognitiveBadge.style.color = "#d8b4fe";
+        el.radarCognitiveBadge.style.borderColor = "rgba(168, 85, 247, 0.5)";
+        el.manipulationRadarCard.style.borderLeftColor = "#a855f7";
+      } else if (cognitiveLevel === "MODERATE") {
+        el.radarCognitiveBadge.className = "intel-badge";
+        el.radarCognitiveBadge.style.background = "rgba(245, 158, 11, 0.2)";
+        el.radarCognitiveBadge.style.color = "#fcd34d";
+        el.radarCognitiveBadge.style.borderColor = "rgba(245, 158, 11, 0.5)";
+        el.manipulationRadarCard.style.borderLeftColor = "#f59e0b";
+      } else {
+        el.radarCognitiveBadge.className = "intel-badge verified";
+        el.radarCognitiveBadge.style.background = "rgba(16, 185, 129, 0.15)";
+        el.radarCognitiveBadge.style.color = "#6ee7b7";
+        el.radarCognitiveBadge.style.borderColor = "rgba(16, 185, 129, 0.4)";
+        el.manipulationRadarCard.style.borderLeftColor = "#10b981";
+      }
+    }
+
+    if (el.radarSummaryBox) {
+      el.radarSummaryBox.textContent = radar.radar_summary || "Visual breakdown of psychological pressure tactics.";
+    }
+
+    const uScore = Math.min(100, Math.max(0, radar.urgency_score || 0));
+    const aScore = Math.min(100, Math.max(0, radar.authority_score || 0));
+    const fScore = Math.min(100, Math.max(0, radar.financial_score || 0));
+    const cScore = Math.min(100, Math.max(0, radar.credential_score || 0));
+
+    if (el.radarUrgencyVal) el.radarUrgencyVal.textContent = `${uScore}%`;
+    if (el.radarUrgencyFill) el.radarUrgencyFill.style.width = `${uScore}%`;
+
+    if (el.radarAuthorityVal) el.radarAuthorityVal.textContent = `${aScore}%`;
+    if (el.radarAuthorityFill) el.radarAuthorityFill.style.width = `${aScore}%`;
+
+    if (el.radarFinancialVal) el.radarFinancialVal.textContent = `${fScore}%`;
+    if (el.radarFinancialFill) el.radarFinancialFill.style.width = `${fScore}%`;
+
+    if (el.radarCredentialVal) el.radarCredentialVal.textContent = `${cScore}%`;
+    if (el.radarCredentialFill) el.radarCredentialFill.style.width = `${cScore}%`;
+
+    if (el.radarTagsRow) {
+      el.radarTagsRow.innerHTML = "";
+      const tactics = Array.isArray(radar.detected_tactics) ? radar.detected_tactics : [];
+      if (tactics.length > 0) {
+        for (const tac of tactics) {
+          const pill = document.createElement("span");
+          pill.className = `radar-tag-pill ${cognitiveLevel === "SEVERE" ? "severe" : ""}`;
+          pill.textContent = tac;
+          el.radarTagsRow.appendChild(pill);
+        }
+      } else {
+        const pill = document.createElement("span");
+        pill.className = "radar-tag-pill";
+        pill.textContent = "✓ Low Cognitive Coercion";
+        el.radarTagsRow.appendChild(pill);
+      }
+    }
+  }
+
+  const radarPayload = res.manipulation_radar || (typeof EmailTextParser !== "undefined" && typeof EmailTextParser.computeManipulationRadar === "function" ? EmailTextParser.computeManipulationRadar(res.subject || "", res.body_text || res.text || "", res.sender_email || "", res.threat_vectors || []) : null);
+  updateManipulationRadarDisplay(radarPayload);
 
   // Remediation Card
   el.remediationText.textContent = res.recommended_action || "Standard security scrutiny applies.";

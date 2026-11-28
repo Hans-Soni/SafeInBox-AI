@@ -1192,6 +1192,23 @@ function renderContentSecurityBanner(bannerEl, verdict, emailData) {
           </div>
         </div>` : ""}
 
+        ${verdict.manipulation_radar && verdict.manipulation_radar.dominant_tactic && verdict.manipulation_radar.dominant_tactic !== "NONE" ? `
+        <div class="aegisai-manipulation-radar-box" style="display:flex !important; flex-direction:column !important; gap:6px !important; background:rgba(192, 132, 252, 0.12) !important; border:1px solid rgba(192, 132, 252, 0.35) !important; border-radius:8px !important; padding:9px 12px !important; margin:10px 0 !important;">
+          <div style="display:flex !important; justify-content:space-between !important; align-items:center !important;">
+            <div style="display:flex !important; align-items:center !important; gap:6px !important; font-size:12px !important; font-weight:700 !important; color:#d8b4fe !important;">
+              <span>🧭 Manipulation Radar:</span>
+              <span style="font-size:10.5px !important; padding:2px 7px !important; border-radius:4px !important; background:${verdict.manipulation_radar.cognitive_load_level === "SEVERE" ? "rgba(239, 68, 68, 0.3)" : "rgba(168, 85, 247, 0.25)"} !important; color:${verdict.manipulation_radar.cognitive_load_level === "SEVERE" ? "#fca5a5" : "#e9d5ff"} !important; border:1px solid ${verdict.manipulation_radar.cognitive_load_level === "SEVERE" ? "#ef4444" : "#a855f7"} !important;">${escapeHtml(verdict.manipulation_radar.cognitive_load_level)} COERCION</span>
+            </div>
+            <span style="font-size:11px !important; color:#cbd5e1 !important; font-weight:600 !important;">Dominant: ${escapeHtml(verdict.manipulation_radar.dominant_tactic)}</span>
+          </div>
+          <div style="font-size:11.5px !important; color:#cbd5e1 !important; line-height:1.4 !important;">
+            ${escapeHtml(verdict.manipulation_radar.radar_summary || "")}
+          </div>
+          <div style="display:flex !important; flex-wrap:wrap !important; gap:6px !important; margin-top:2px !important;">
+            ${(verdict.manipulation_radar.detected_tactics || []).map(t => `<span style="font-size:10.5px !important; font-weight:600 !important; padding:2px 7px !important; border-radius:4px !important; background:rgba(36, 47, 64, 0.8) !important; color:#f8fafc !important; border:1px solid #384358 !important;">${escapeHtml(t)}</span>`).join("")}
+          </div>
+        </div>` : ""}
+
         <div class="aegisai-email-fields-card">
           <div class="aegisai-email-fields-title">📧 Scanned Email Fields (Text Only)</div>
           <div class="aegisai-email-field-row">

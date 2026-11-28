@@ -304,6 +304,73 @@
         </div>
       </div>
 
+      <!-- Psychological Coercion & Manipulation Radar Card (Feature 4) -->
+      <div class="intel-card manipulation-radar-card" id="manipulationRadarCard" style="display: none; border-left: 3px solid #c084fc;">
+        <div class="card-header-row">
+          <div class="card-header-title">
+            <svg class="card-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <circle cx="12" cy="12" r="10"></circle>
+              <path d="M12 2a14.5 14.5 0 0 0 0 20 14.5 14.5 0 0 0 0-20"></path>
+              <path d="M2 12h20"></path>
+            </svg>
+            <span>Manipulation & Coercion Radar</span>
+          </div>
+          <span class="intel-badge" id="radarCognitiveBadge" style="background: rgba(192, 132, 252, 0.15); color: #c084fc; border: 1px solid rgba(192, 132, 252, 0.4);">LOW</span>
+        </div>
+
+        <div class="radar-summary-box" id="radarSummaryBox" style="font-size: 11.5px; color: #cbd5e1; margin: 6px 0 10px 0; line-height: 1.4;">
+          Visual breakdown of psychological pressure tactics detected in this message.
+        </div>
+
+        <div class="radar-axes-list">
+          <!-- Axis 1: Urgency Pressure -->
+          <div class="radar-axis-item">
+            <div class="radar-axis-header">
+              <span class="radar-axis-name">⏳ Urgency Pressure</span>
+              <span class="radar-axis-val" id="radarUrgencyVal">0%</span>
+            </div>
+            <div class="radar-axis-track">
+              <div class="radar-axis-fill urgency" id="radarUrgencyFill" style="width: 0%;"></div>
+            </div>
+          </div>
+
+          <!-- Axis 2: Authority Coercion -->
+          <div class="radar-axis-item">
+            <div class="radar-axis-header">
+              <span class="radar-axis-name">⚡ Authority Coercion</span>
+              <span class="radar-axis-val" id="radarAuthorityVal">0%</span>
+            </div>
+            <div class="radar-axis-track">
+              <div class="radar-axis-fill authority" id="radarAuthorityFill" style="width: 0%;"></div>
+            </div>
+          </div>
+
+          <!-- Axis 3: Financial Hook -->
+          <div class="radar-axis-item">
+            <div class="radar-axis-header">
+              <span class="radar-axis-name">💰 Financial Hook</span>
+              <span class="radar-axis-val" id="radarFinancialVal">0%</span>
+            </div>
+            <div class="radar-axis-track">
+              <div class="radar-axis-fill financial" id="radarFinancialFill" style="width: 0%;"></div>
+            </div>
+          </div>
+
+          <!-- Axis 4: Credential Harvest Cue -->
+          <div class="radar-axis-item">
+            <div class="radar-axis-header">
+              <span class="radar-axis-name">🔑 Credential Harvest Cue</span>
+              <span class="radar-axis-val" id="radarCredentialVal">0%</span>
+            </div>
+            <div class="radar-axis-track">
+              <div class="radar-axis-fill credential" id="radarCredentialFill" style="width: 0%;"></div>
+            </div>
+          </div>
+        </div>
+
+        <div class="radar-tags-row" id="radarTagsRow" style="display: flex; flex-wrap: wrap; gap: 6px; margin-top: 10px;"></div>
+      </div>
+
       <!-- Direct Safety Feedback Card -->
       <div class="feedback-card" id="directFeedbackCard" style="display: none;">
         <div class="feedback-card-header">

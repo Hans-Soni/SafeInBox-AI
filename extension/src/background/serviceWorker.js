@@ -977,6 +977,9 @@ async function analyzeEmailAndRespond(input) {
         result.analysis_note = analysisWarning || `Heuristic-only result; ${inferenceUnavailable}`;
       }
     }
+    if (!result.manipulation_radar && typeof EmailTextParser !== "undefined" && typeof EmailTextParser.computeManipulationRadar === "function") {
+      result.manipulation_radar = EmailTextParser.computeManipulationRadar(email.subject, email.body || email.text, email.sender, result.threat_vectors);
+    }
 
     // Await the concurrently dispatched cloud community threat intelligence
     try {
@@ -984,6 +987,9 @@ async function analyzeEmailAndRespond(input) {
       if (cloudData) {
         if (cloudData.community_intel) {
           result.community_intel = cloudData.community_intel;
+        }
+        if (cloudData.manipulation_radar) {
+          result.manipulation_radar = cloudData.manipulation_radar;
         }
         if (Array.isArray(cloudData.qr_codes_analyzed) && cloudData.qr_codes_analyzed.length > 0) {
           result.qr_codes_analyzed = cloudData.qr_codes_analyzed;

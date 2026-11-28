@@ -149,6 +149,7 @@ async def scan_email(
         qr_codes_analyzed=qr_codes_analyzed,
         analysis_note=result["analysis_note"],
         community_intel=community_intel,
+        manipulation_radar=result.get("manipulation_radar"),
         latency_ms=round(elapsed, 2)
     )
 

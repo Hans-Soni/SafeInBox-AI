@@ -20,6 +20,8 @@
   const FINANCIAL_RE = /\b(?:unclaimed refund|refund pending|payment overdue|invoice(?:\s+#?\w+)?|wire transfer|gift card|prize(?: money)?|you(?:'|’)ve won|claim your reward|tax refund)\b/gi;
   const CREDENTIAL_RE = /\b(?:password|passcode|pin|one[- ]time code|2fa|multi[- ]factor|verification code|security code|login credentials|sign[ -]?in details)\b/gi;
   const COERCION_RE = /\b(?:legal action|police report|law enforcement|account termination|permanently deleted|arrest warrant|immediately or else|avoid prosecution)\b/gi;
+  const AUTHORITY_EXEC_RE = /\b(?:executive (?:board|committee|office)|chief executive|c-suite|cfo|ceo|coo|director|managing partner|human resources|hr department|security operations|compliance officer|internal audit|mandatory compliance)\b/i;
+  const AUTHORITY_CONFIDENTIAL_RE = /\b(?:strictly confidential|keep this (?:private|between us)|do not (?:discuss|share|forward|mention)|private matter|handle immediately|handle discreetly)\b/i;
   const EMAIL_RE = /[\w.+-]+@(?:[\w-]+\.)+[a-z]{2,63}/i;
   const TOKEN_RE = /\[URL\]|\[IP\]|\[MONEY\]|[a-z]+(?:'[a-z]+)?|\d+|[^\s]/gi;
   const DEFAULT_MAX_TOKENS = 512;
@@ -88,6 +90,102 @@
 
   function makeFinding(ruleId, severity, evidence, remediation, threatVector) {
     return { rule_id: ruleId, severity, evidence, remediation, threat_vector: threatVector };
+  }
+
+  function computeManipulationRadar(subject, bodyText, senderValue, threatVectors) {
+    const textCombined = `${subject}\n${bodyText}`.toLowerCase();
+    const vecSet = new Set(Array.isArray(threatVectors) ? threatVectors : []);
+
+    // Axis 1: Urgency Pressure
+    let urgencyScore = 0;
+    URGENCY_RE.lastIndex = 0;
+    if (URGENCY_RE.test(subject)) urgencyScore += 45;
+    URGENCY_RE.lastIndex = 0;
+    const urgencyMatches = findMatches(URGENCY_RE, bodyText).length;
+    urgencyScore += Math.min(55, urgencyMatches * 25);
+    if (vecSet.has("ARTIFICIAL_URGENCY")) urgencyScore = Math.max(urgencyScore, 50);
+    urgencyScore = Math.min(100, urgencyScore);
+
+    // Axis 2: Authority Coercion
+    let authorityScore = 0;
+    COERCION_RE.lastIndex = 0;
+    if (COERCION_RE.test(subject)) authorityScore += 40;
+    COERCION_RE.lastIndex = 0;
+    if (COERCION_RE.test(bodyText)) authorityScore += 35;
+    if (AUTHORITY_EXEC_RE.test(textCombined)) authorityScore += 30;
+    if (AUTHORITY_CONFIDENTIAL_RE.test(textCombined)) authorityScore += 25;
+    if (vecSet.has("BEHAVIORAL_MANIPULATION") || vecSet.has("SENDER_SPOOFING")) {
+      authorityScore = Math.max(authorityScore, 45);
+    }
+    authorityScore = Math.min(100, authorityScore);
+
+    // Axis 3: Financial Hook
+    let financialScore = 0;
+    FINANCIAL_RE.lastIndex = 0;
+    if (FINANCIAL_RE.test(subject)) financialScore += 40;
+    FINANCIAL_RE.lastIndex = 0;
+    const financialMatches = findMatches(FINANCIAL_RE, bodyText).length;
+    financialScore += Math.min(60, financialMatches * 25);
+    if (vecSet.has("FINANCIAL_SCAM")) financialScore = Math.max(financialScore, 50);
+    financialScore = Math.min(100, financialScore);
+
+    // Axis 4: Credential Harvest Cue
+    let credentialScore = 0;
+    CREDENTIAL_RE.lastIndex = 0;
+    if (CREDENTIAL_RE.test(subject)) credentialScore += 45;
+    CREDENTIAL_RE.lastIndex = 0;
+    const credentialMatches = findMatches(CREDENTIAL_RE, bodyText).length;
+    credentialScore += Math.min(55, credentialMatches * 25);
+    if (vecSet.has("CREDENTIAL_HARVESTING")) credentialScore = Math.max(credentialScore, 55);
+    credentialScore = Math.min(100, credentialScore);
+
+    const scores = {
+      URGENCY: urgencyScore,
+      AUTHORITY: authorityScore,
+      FINANCIAL: financialScore,
+      CREDENTIAL: credentialScore
+    };
+    let maxAxis = "NONE";
+    let maxVal = -1;
+    for (const [axis, val] of Object.entries(scores)) {
+      if (val > maxVal) {
+        maxVal = val;
+        maxAxis = axis;
+      }
+    }
+    const dominantTactic = maxVal >= 25 ? maxAxis : "NONE";
+
+    const avgScore = (urgencyScore + authorityScore + financialScore + credentialScore) / 4;
+    let cognitiveLoadLevel = "LOW";
+    if (maxVal >= 75) cognitiveLoadLevel = "SEVERE";
+    else if (maxVal >= 50 || avgScore >= 35) cognitiveLoadLevel = "HIGH";
+    else if (maxVal >= 25) cognitiveLoadLevel = "MODERATE";
+
+    const detectedTactics = [];
+    if (urgencyScore >= 35) detectedTactics.push(`Urgency Pressure (${urgencyScore}%)`);
+    if (authorityScore >= 35) detectedTactics.push(`Authority Coercion (${authorityScore}%)`);
+    if (financialScore >= 35) detectedTactics.push(`Financial Hook (${financialScore}%)`);
+    if (credentialScore >= 35) detectedTactics.push(`Credential Harvest (${credentialScore}%)`);
+
+    let radarSummary = "Low psychological manipulation detected. Message lacks overt cognitive coercion or urgency cues.";
+    if (cognitiveLoadLevel === "SEVERE") {
+      radarSummary = `Severe psychological manipulation detected (${dominantTactic}). Uses extreme pressure or intimidation to bypass rational verification.`;
+    } else if (cognitiveLoadLevel === "HIGH") {
+      radarSummary = `High social engineering cues detected (${dominantTactic}). Multiple coercive tactics active to prompt immediate unverified action.`;
+    } else if (cognitiveLoadLevel === "MODERATE") {
+      radarSummary = `Moderate cognitive pressure detected (${dominantTactic}). Contains persuasive or urgent cues warranting sender verification.`;
+    }
+
+    return {
+      urgency_score: urgencyScore,
+      authority_score: authorityScore,
+      financial_score: financialScore,
+      credential_score: credentialScore,
+      dominant_tactic: dominantTactic,
+      cognitive_load_level: cognitiveLoadLevel,
+      detected_tactics: detectedTactics,
+      radar_summary: radarSummary
+    };
   }
 
   function analyzeEmailText(input = {}) {
@@ -253,6 +351,7 @@
         sender_domain: sender.domain,
         canonical_domains: claimedBrand ? claimedBrand.domains : []
       },
+      manipulation_radar: computeManipulationRadar(subject, bodyText, senderValue, vectors),
       extracted_urls_count: urls.length,
       urls_analyzed: [],
       risk_level: level,
@@ -384,7 +483,7 @@
     return chunks;
   }
 
-  const api = { analyzeEmailText, maskSensitiveTokens, splitIntoChunks, stripHtml, wordPieceTokenize, wordPieceTokenizeChunks };
+  const api = { analyzeEmailText, computeManipulationRadar, maskSensitiveTokens, splitIntoChunks, stripHtml, wordPieceTokenize, wordPieceTokenizeChunks };
   root.EmailTextParser = api;
   if (typeof module !== "undefined" && module.exports) module.exports = api;
 })(typeof globalThis !== "undefined" ? globalThis : self);

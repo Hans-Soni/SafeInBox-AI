@@ -35,6 +35,28 @@
 
 ## Change log
 
+### 2026-11-29 — Feature 4: Psychological Coercion & Manipulation Radar
+
+- 4-Axis Cognitive Manipulation Engine (`backend/app/services/email_analyzer.py`, `extension/src/utils/textParser.js`):
+  - Engineered an $\mathcal{O}(1)$ psychological manipulation radar assessing social engineering pressure across 4 behavioral axes:
+    1. **Urgency Pressure** (`urgency_score`, 0-100): Evaluates artificial countdowns, immediate action threats, "within 24 hours", and account suspension lures.
+    2. **Authority Coercion** (`authority_score`, 0-100): Evaluates executive intimidation ("By order of CEO", "Executive board", "Legal action", "Police report", "Subpoena", and secrecy/confidentiality isolation demands).
+    3. **Financial Hook** (`financial_score`, 0-100): Evaluates overdue invoices, wire transfer requests, payroll/direct deposit modifications, cryptocurrency, and lottery/refund lures.
+    4. **Credential Harvest Cue** (`credential_score`, 0-100): Evaluates login credentials, 2FA/MFA token extraction, session re-authentication, and password verification prompts.
+  - Generates dominant tactic classification (`dominant_tactic`), cognitive load level (`cognitive_load_level`: LOW, MODERATE, HIGH, SEVERE), active tactic tags, and an informative psychological assessment summary.
+  - 100% Offline Independence: Dual implementation in server-side `email_analyzer.py` and client-side `textParser.js` (`EmailTextParser.computeManipulationRadar`) guarantees identical radar output even when disconnected from backend or database.
+- Side Panel & Webmail UI Integration:
+  - Side Panel (`extension/sidepanel.html`, `extension/src/ui/sidepanelController.js`, `extension/src/ui/sidepanel.css`):
+    - Added dedicated **Manipulation & Coercion Radar Card** (`#manipulationRadarCard`) with dynamic cognitive load badge, psychological summary, 4 animated color-coded progress bars (Amber/Red Urgency, Purple/Pink Authority, Green/Orange Financial, Blue/Red Credential), and active tactic pills.
+  - Webmail Banner 2 (`extension/src/content/contentScript.js`):
+    - Injects high-visibility Manipulation Radar card whenever cognitive load is MODERATE or higher, highlighting dominant manipulation tactics.
+- Backend Schema & API Enrichment (`backend/app/schemas/email_scan.py`, `backend/app/routers/email.py`):
+  - Added `ManipulationRadar` Pydantic model and enriched `EmailScanResponse` with `manipulation_radar`.
+- Validation:
+  - 102/102 extension unit tests pass (`npm test` in 19.12s, including 5 new tests in `manipulationRadar.test.js`).
+  - 74/74 backend pytest tests pass (`pytest` in 19.87s across all 14 suites, including 6 new tests in `test_manipulation_radar.py`).
+  - Live Neon Lakebase Postgres test harness (`sync_and_track_neon.py`) executed with 100% success across all 12 tables and 9 live telemetry streams on PostgreSQL 18.7.
+
 ### 2026-11-28 — Cross-Stack Synchronization, Pipeline Hardening & End-to-End Perfection Verification
 
 - Cross-Stack QR & URL Threat Handoff Synchronization:
